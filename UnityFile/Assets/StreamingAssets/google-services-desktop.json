@@ -1,14 +1,14 @@
 {
   "project_info": {
-    "project_number": "505060391771",
-    "firebase_url": "https://dnd-game-518f0-default-rtdb.asia-southeast1.firebasedatabase.app",
-    "project_id": "dnd-game-518f0",
-    "storage_bucket": "dnd-game-518f0.appspot.com"
+    "project_number": "230637628934",
+    "firebase_url": "https://asal2026-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "asal2026",
+    "storage_bucket": "asal2026.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:505060391771:android:5f73f8a94684962b55387e",
+        "mobilesdk_app_id": "1:230637628934:android:f78e14eb1df823ae105d87",
         "android_client_info": {
           "package_name": "com.DefaultCompany.DnD_game"
         }
@@ -16,7 +16,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDx2AVbOiF3pYffFSyffK5AcTzdEcSiC4k"
+          "current_key": "AIzaSyBVXyjkn6FYuU6nj4DeZTB7zF1qT5aQAW8"
         }
       ],
       "services": {

@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "230637628934",
+    "firebase_url": "https://asal2026-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "asal2026",
+    "storage_bucket": "asal2026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:230637628934:android:f78e14eb1df823ae105d87",
+        "android_client_info": {
+          "package_name": "com.DefaultCompany.DnD_game"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBVXyjkn6FYuU6nj4DeZTB7zF1qT5aQAW8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
