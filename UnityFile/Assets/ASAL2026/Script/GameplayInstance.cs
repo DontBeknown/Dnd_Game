@@ -6,8 +6,8 @@ namespace ASAL
 {
     public sealed class GameplayInstance : MonoBehaviour
     {
-        [SerializeField] private GameObject managerGroupPrefab;
-        [SerializeField] private GameObject uiShellPrefab;
+        [SerializeField] private GameObject managerGroup;
+        [SerializeField] private GameObject uiShell;
 
         private readonly Stack<Action> cleanup = new();
         private GameObject managers;
@@ -20,10 +20,10 @@ namespace ASAL
         {
             try
             {
-                RequireInactive(managerGroupPrefab, nameof(managerGroupPrefab));
-                RequireInactive(uiShellPrefab, nameof(uiShellPrefab));
-                managers = Instantiate(managerGroupPrefab, transform);
-                shell = Instantiate(uiShellPrefab, transform);
+                RequireInactiveChild(managerGroup, nameof(managerGroup));
+                RequireInactiveChild(uiShell, nameof(uiShell));
+                managers = managerGroup;
+                shell = uiShell;
 
                 var input = RequireManager<InputManager>(managers);
                 var ui = RequireManager<UIManager>(managers);
@@ -53,10 +53,10 @@ namespace ASAL
             }
         }
 
-        private static void RequireInactive(GameObject prefab, string fieldName)
+        private void RequireInactiveChild(GameObject root, string fieldName)
         {
-            if (!prefab || prefab.activeSelf)
-                throw new InvalidOperationException($"{fieldName} must reference an inactive prefab root.");
+            if (!root || root.activeSelf || root.transform.parent != transform)
+                throw new InvalidOperationException($"{fieldName} must reference an inactive child of GameplayInstance.");
         }
 
         private static T RequireManager<T>(GameObject root) where T : MonoBehaviour
@@ -91,22 +91,11 @@ namespace ASAL
                 catch (Exception error) { Debug.LogException(error, this); }
             }
 
-            if (shell)
-                Release(shell);
             if (managers)
-                Release(managers);
+                managers.SetActive(false);
 
             shell = null;
             managers = null;
-        }
-
-        internal static void Release(GameObject instance)
-        {
-            instance.SetActive(false);
-            if (Application.isPlaying)
-                Destroy(instance);
-            else
-                DestroyImmediate(instance);
         }
     }
 }

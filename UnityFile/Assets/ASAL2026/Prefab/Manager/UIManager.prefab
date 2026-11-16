@@ -44,4 +44,3 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 18348c6ca725903419ca08edbf4db569, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ASAL.UIManager
-  signInPanelPrefab: {fileID: 2038393442282249794, guid: 4c8de47b3ceb1cf45b9e10d8726a7b72, type: 3}

@@ -44,5 +44,5 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5141ae433d25c1c46ab1d13758b5b7b7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ASAL.GameplayInstance
-  managerGroupPrefab: {fileID: 5542834851269652344, guid: 1956f523673d78c4581c225fa1b3e72e, type: 3}
-  uiShellPrefab: {fileID: 1098324384, guid: bfeb35c0838186b44b7fd23eb7aad841, type: 3}
+  managerGroup: {fileID: 0}
+  uiShell: {fileID: 0}

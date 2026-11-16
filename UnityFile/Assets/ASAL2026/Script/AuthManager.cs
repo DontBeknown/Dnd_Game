@@ -223,7 +223,10 @@ namespace ASAL
             {
                 if (version == generation)
                 {
-                    Debug.LogWarning($"Account request failed ({exception.GetType().Name}).", this);
+                    var errorDetails = exception is FirebaseException firebaseException
+                        ? $"FirebaseException, error code {firebaseException.ErrorCode}"
+                        : exception.GetType().Name;
+                    Debug.LogWarning($"Account request failed ({errorDetails}).", this);
                     Error = NeedsProfile ? "Could not load or save your profile. Try again." : failureMessage;
                 }
             }

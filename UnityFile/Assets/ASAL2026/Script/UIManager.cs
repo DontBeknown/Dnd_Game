@@ -7,10 +7,7 @@ namespace ASAL
     {
         public static UIManager Instance { get; private set; }
 
-        [SerializeField] private SignInPanel signInPanelPrefab;
-
-        private RectTransform screenRoot;
-        private SignInPanel panel;
+        private SignInPanel signInPanel;
 
         internal void Register()
         {
@@ -27,47 +24,30 @@ namespace ASAL
 
         internal void Initialize(RectTransform root)
         {
-            if (!signInPanelPrefab)
-                throw new InvalidOperationException("Assign the SignInPanel prefab on UIManager.");
+            var panels = root.GetComponentsInChildren<SignInPanel>(true);
+            if (panels.Length != 1)
+                throw new InvalidOperationException($"Expected exactly one SignInPanel under the screen root, found {panels.Length}.");
 
-            signInPanelPrefab.ValidateBindings();
-            screenRoot = root;
+            panels[0].ValidateBindings();
+            signInPanel = panels[0];
         }
 
         public void ShowSignIn()
         {
-            EnsurePanel();
-            panel.ShowLogin();
+            signInPanel.ShowLogin();
         }
 
         internal void ShowSignedIn(AccountProfile profile)
         {
-            EnsurePanel();
-            panel.ShowSignedIn(profile.DisplayName);
+            signInPanel.ShowSignedIn(profile.DisplayName);
         }
 
         internal void RefreshAccountStatus(AuthManager auth)
         {
-            if (panel)
-                panel.Refresh(auth);
+            if (signInPanel)
+                signInPanel.Refresh(auth);
         }
 
-        private void EnsurePanel()
-        {
-            if (panel)
-                return;
-
-            panel = Instantiate(signInPanelPrefab, screenRoot, false);
-            panel.gameObject.SetActive(true);
-        }
-
-        internal void Shutdown()
-        {
-            if (panel)
-                GameplayInstance.Release(panel.gameObject);
-
-            panel = null;
-            screenRoot = null;
-        }
+        internal void Shutdown() => signInPanel = null;
     }
 }
