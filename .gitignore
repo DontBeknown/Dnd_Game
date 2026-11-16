@@ -1,4 +1,15 @@
+# Repository-level Unity builds and Visual Studio cache
+/[Bb]uild/
+/[Bb]uilds/
+/.vs/
 
+# Local project documentation
+/docs/
+
+# Visual Studio upgrade reports
+/UnityFile/UpgradeLog*.htm
+
+# Existing Firebase exclusions
 /UnityFile/Assets/Firebase
 /UnityFile/Assets/Editor Default Resources/Firebase
 /UnityFile/Assets/google-services.json
