@@ -6,6 +6,9 @@
 # Local project documentation
 /docs/
 
+# Build file
+Build
+
 # Visual Studio upgrade reports
 /UnityFile/UpgradeLog*.htm
 
@@ -19,3 +22,4 @@
 /UnityFile/Assets/StreamingAssets/google-services.json.meta
 /UnityFile/Assets/StreamingAssets/google-services-desktop.json
 /UnityFile/Assets/StreamingAssets/google-services-desktop.json.meta
+
