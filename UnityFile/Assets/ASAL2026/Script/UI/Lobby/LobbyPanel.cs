@@ -23,6 +23,7 @@ namespace ASAL
         [SerializeField] private Button create;
         [SerializeField] private Button retry;
         [SerializeField] private Button signOut;
+        [SerializeField] private Button manageCharacters;
         [SerializeField] private RectTransform content;
         [SerializeField] private LobbyRoomRow rowPrefab;
 
@@ -43,6 +44,7 @@ namespace ASAL
             backFromCreateRoom.onClick.AddListener(ShowTitle);
             retry.onClick.AddListener(RoomManager.Instance.Retry);
             signOut.onClick.AddListener(AuthManager.Instance.SignOut);
+            manageCharacters.onClick.AddListener(() => UIManager.Instance.OpenRecordEditor(false, manageCharacters));
         }
 
         internal void Render(RoomManager model, string displayName)

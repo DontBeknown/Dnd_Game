@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace ASAL
 {
@@ -10,15 +11,20 @@ namespace ASAL
         [SerializeField] private GameObject mainBackGround;
         [SerializeField] private LobbyPanel lobbyPrefab;
         [SerializeField] private RoomSetupPanel roomPrefab;
-        [SerializeField] private CharacterPickerPanel characterPickerPrefab;
+        [SerializeField] private CharacterEditorPanel characterPickerPrefab;
         [SerializeField] private MapEditorPanel mapEditorPrefab;
+        [SerializeField] private CharacterEditorPanel characterEditorPrefab;
+        [SerializeField] private PlayPanel playPrefab;
 
         private SignInPanel signInPanel;
         private LobbyPanel authoredLobby;
         private LobbyPanel lobbyPanel;
         private RoomSetupPanel roomPanel;
-        private CharacterPickerPanel characterPicker;
+        private CharacterEditorPanel characterPicker;
         private MapEditorPanel mapEditor;
+        private CharacterEditorPanel recordEditor;
+        private PlayPanel play;
+        private Button editorReturnFocus;
         private RectTransform screenRoot;
         private RoomManager rooms;
         private AccountProfile account;
@@ -78,13 +84,26 @@ namespace ASAL
         {
             if (rooms.InRoom)
             {
+                if (rooms.Phase != RoomPhase.Setup && characterPicker)
+                    RetireCharacterPicker();
+                if (recordEditor && recordEditor.OpeningPhase != rooms.Phase)
+                {
+                    recordEditor.Release();
+                    recordEditor.gameObject.SetActive(false);
+                    Destroy(recordEditor.gameObject);
+                    recordEditor = null;
+                    editorReturnFocus = null;
+                }
                 if (screens.Current == lobbyPanel.gameObject)
                     lobbyPanel.PrepareReturnToDiscovery();
                 if (!roomPanel)
                     roomPanel = Instantiate(roomPrefab, screenRoot, false);
-                if (rooms.Phase != RoomPhase.Setup)
-                    ClearFeatures();
-                if (!characterPicker && (!mapEditor || screens.Current != mapEditor.gameObject))
+                if (play && rooms.Phase == RoomPhase.Playing)
+                {
+                    play.RefreshStatus();
+                    return;
+                }
+                if (!characterPicker && !recordEditor && (!mapEditor || screens.Current != mapEditor.gameObject))
                 {
                     screens.Show(roomPanel.gameObject);
                     roomPanel.Render(rooms);
@@ -92,7 +111,10 @@ namespace ASAL
                 return;
             }
 
-            ClearFeatures();
+            if (roomPanel || play)
+                ClearFeatures();
+            if (recordEditor)
+                return;
             var previousRoom = roomPanel;
             roomPanel = null;
             screens.Show(lobbyPanel.gameObject, retirePrevious: () =>
@@ -105,21 +127,74 @@ namespace ASAL
 
         internal void OpenCharacterPicker()
         {
-            if (!rooms || !rooms.CanEditRoom || rooms.IsDm || characterPicker)
+            if (!rooms || !rooms.CanEditRoom || rooms.IsDm || characterPicker || recordEditor)
                 return;
-            characterPicker = Instantiate(characterPickerPrefab, screenRoot, false);
-            screens.Show(characterPicker.gameObject, () => characterPicker.Open(account, rooms.SelectedCharacterId, value =>
+            if (rooms.LocalReady)
             {
-                if (!rooms || !rooms.CanEditRoom || rooms.IsDm)
+                rooms.SetReady(false);
+                if (rooms.LocalReady)
                     return;
-                rooms.SelectCharacter(value);
+            }
+            characterPicker = Instantiate(characterPickerPrefab, screenRoot, false);
+            screens.Show(characterPicker.gameObject, () => characterPicker.Open(account, false, CloseCharacterPicker,
+                rooms.SelectedCharacterId, value =>
+            {
+                if (!rooms.SelectCharacter(value))
+                    return false;
                 CloseCharacterPicker();
-            }, CloseCharacterPicker));
+                return true;
+            }, value => rooms.SelectedCharacterId != value.RecordId || rooms.SelectCharacter(value)));
+        }
+
+        internal TilemapDataWrapper CaptureStartingMap() => mapEditor ? mapEditor.CaptureStartingMap() : null;
+
+        internal void ShowPlay(MatchSnapshot snapshot)
+        {
+            if (!play)
+            {
+                play = Instantiate(playPrefab, screenRoot, false);
+                play.Initialize(rooms, account);
+                play.Apply(snapshot);
+                screens.Show(play.gameObject, retirePrevious: () => mainBackGround.SetActive(false));
+                return;
+            }
+
+            play.Apply(snapshot);
+        }
+
+        internal void OpenRecordEditor(bool enemy, Button focus)
+        {
+            if (!rooms || recordEditor || characterPicker || (enemy
+                ? !rooms.IsDm || (!rooms.CanEditRoom && rooms.Phase != RoomPhase.Playing)
+                : rooms.InRoom))
+                return;
+
+            editorReturnFocus = focus;
+            recordEditor = Instantiate(enemy ? characterPickerPrefab : characterEditorPrefab, screenRoot, false);
+            screens.Show(recordEditor.gameObject, () => recordEditor.Open(account, enemy, CloseRecordEditor));
+        }
+
+        private void CloseRecordEditor()
+        {
+            var previous = recordEditor;
+            recordEditor = null;
+            previous.Release();
+            var target = play ? play.gameObject : rooms.InRoom ? roomPanel.gameObject : lobbyPanel.gameObject;
+            screens.Show(target, retirePrevious: () =>
+            {
+                Destroy(previous.gameObject);
+                if (editorReturnFocus && editorReturnFocus.IsInteractable())
+                    editorReturnFocus.Select();
+                editorReturnFocus = null;
+            });
+            if (play)
+                play.RefreshEnemies();
+            RefreshLobby();
         }
 
         internal void OpenMapEditor()
         {
-            if (!rooms || !rooms.CanEditRoom || !rooms.IsDm)
+            if (!rooms || !rooms.IsDm || (!rooms.CanEditRoom && rooms.Phase != RoomPhase.Playing))
                 return;
             if (!mapEditor)
             {
@@ -135,19 +210,34 @@ namespace ASAL
         private void CloseCharacterPicker()
         {
             var previousPicker = characterPicker;
-            previousPicker.enabled = false;
+            previousPicker.Release();
             characterPicker = null;
             screens.Show(roomPanel.gameObject, retirePrevious: () => Destroy(previousPicker.gameObject));
             RestoreRoomFocus();
         }
 
+        private void RetireCharacterPicker()
+        {
+            if (!characterPicker)
+                return;
+            characterPicker.Release();
+            characterPicker.gameObject.SetActive(false);
+            Destroy(characterPicker.gameObject);
+            characterPicker = null;
+        }
+
         private void CloseMapEditor()
         {
             mapEditor.enabled = false;
-            screens.Show(roomPanel.gameObject, retirePrevious: () => {
-                mainBackGround.SetActive(true);
-                });
-            RestoreRoomFocus();
+            var target = play ? play.gameObject : roomPanel.gameObject;
+            screens.Show(target, retirePrevious: () =>
+            {
+                mainBackGround.SetActive(!play);
+                if (play)
+                    play.FocusMapEditor();
+                else
+                    RestoreRoomFocus();
+            });
         }
 
         private void RestoreRoomFocus()
@@ -159,14 +249,24 @@ namespace ASAL
 
         private void ClearFeatures()
         {
-            if (characterPicker || mapEditor && mapEditor.gameObject.activeSelf)
-                screens.Finish();
-            if (characterPicker)
+            screens.Finish();
+            if (recordEditor)
             {
-                characterPicker.gameObject.SetActive(false);
-                Destroy(characterPicker.gameObject);
-                characterPicker = null;
+                recordEditor.Release();
+                recordEditor.gameObject.SetActive(false);
+                Destroy(recordEditor.gameObject);
+                recordEditor = null;
+                editorReturnFocus = null;
             }
+            if (play)
+            {
+                play.Release();
+                play.gameObject.SetActive(false);
+                Destroy(play.gameObject);
+                play = null;
+            }
+            mainBackGround.SetActive(true);
+            RetireCharacterPicker();
             if (mapEditor)
             {
                 mapEditor.Release();

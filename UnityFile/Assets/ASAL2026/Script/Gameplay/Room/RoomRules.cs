@@ -52,7 +52,7 @@ namespace ASAL
         public int Capacity { get; }
     }
 
-    public enum RoomPhase { None, Setup, Starting }
+    public enum RoomPhase { None, Setup, Starting, Playing }
 
     public static class RoomRules
     {

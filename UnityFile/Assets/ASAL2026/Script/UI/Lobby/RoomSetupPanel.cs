@@ -18,6 +18,7 @@ namespace ASAL
         [SerializeField] private Button ready;
         [SerializeField] private Button selectCharacter;
         [SerializeField] private Button mapEditor;
+        [SerializeField] private Button manageEnemies;
         [SerializeField] private RectTransform content;
         [SerializeField] private RoomMemberRow rowPrefab;
 
@@ -31,6 +32,7 @@ namespace ASAL
             ready.onClick.AddListener(() => rooms.SetReady(!rooms.LocalReady));
             selectCharacter.onClick.AddListener(UIManager.Instance.OpenCharacterPicker);
             mapEditor.onClick.AddListener(UIManager.Instance.OpenMapEditor);
+            manageEnemies.onClick.AddListener(() => UIManager.Instance.OpenRecordEditor(true, manageEnemies));
         }
 
         internal void FocusFeature(bool isDm)
@@ -50,7 +52,8 @@ namespace ASAL
             ready.interactable = model.CanEditRoom && model.HasSelection;
             selectCharacter.gameObject.SetActive(!model.IsDm && model.Phase == RoomPhase.Setup);
             mapEditor.gameObject.SetActive(model.IsDm && model.Phase == RoomPhase.Setup);
-            selectCharacter.interactable = mapEditor.interactable = model.CanEditRoom;
+            manageEnemies.gameObject.SetActive(model.IsDm && model.Phase == RoomPhase.Setup);
+            selectCharacter.interactable = mapEditor.interactable = manageEnemies.interactable = model.CanEditRoom;
             ready.image.sprite = model.LocalReady ? readySprite : notReadySprite;
             status.text = model.Error ?? (model.Phase == RoomPhase.Starting
                 ? "Waiting for the initial match snapshot."

@@ -11,6 +11,9 @@ namespace ASAL
     {
         private PhotonManager photon;
         private Room room;
+        private MatchSession match;
+        private float nextCancelStart;
+        private bool cancelStart;
         private RoomMember[] roster = Array.Empty<RoomMember>();
         private SelectedCharacter selection;
         private bool selectedReady;
@@ -26,6 +29,10 @@ namespace ASAL
         public event Action<string> StartRequested;
 
         internal event Action Changed;
+        internal event Action<MatchSnapshot> MatchApplied;
+        internal MatchSession Match => match;
+        internal int LocalActor => photon.LocalActor;
+        internal string Session => photon.Session;
         internal string Error { get; private set; }
         internal bool Discovering => photon.Discovering;
         internal bool CanRetry => photon.CanRetry;
@@ -114,20 +121,20 @@ namespace ASAL
             photon.Leave();
         }
 
-        public void SelectCharacter(SelectedCharacter value)
+        public bool SelectCharacter(SelectedCharacter value)
         {
             if (!CanEditRoom || IsDm)
-                return;
+                return false;
             if (value != null && (string.IsNullOrWhiteSpace(value.RecordId)
                 || string.IsNullOrWhiteSpace(value.DisplayName)))
             {
                 ShowError("The selected character needs a saved ID and display name.");
-                return;
+                return false;
             }
 
             bool ready = RoomRules.KeepReady(selection?.RecordId, selection?.DisplayName,
                 value?.RecordId, value?.DisplayName, selectedReady);
-            PublishSelection(value, ready);
+            return PublishSelection(value, ready);
         }
 
         public void SetReady(bool ready)
@@ -185,6 +192,8 @@ namespace ASAL
         private void BindRoom()
         {
             room = photon.Current;
+            match = new MatchSession(photon, this);
+            match.Applied += OnMatchApplied;
             photon.RoomChanged += OnRoomChanged;
             photon.KickReceived += OnKickReceived;
             Phase = RoomPhase.Setup;
@@ -205,6 +214,13 @@ namespace ASAL
         {
             photon.RoomChanged -= OnRoomChanged;
             photon.KickReceived -= OnKickReceived;
+            if (match != null)
+            {
+                match.Applied -= OnMatchApplied;
+                match.Dispose();
+                match = null;
+            }
+            cancelStart = false;
             room = null;
             roster = Array.Empty<RoomMember>();
             selection = null;
@@ -239,6 +255,13 @@ namespace ASAL
                 Phase = RoomPhase.Starting;
                 StartRequested?.Invoke(photon.Session);
             }
+            else if (Phase == RoomPhase.Starting && !photon.Started && photon.MatchRevision == 0)
+            {
+                cancelStart = false;
+                Phase = RoomPhase.Setup;
+                if (IsDm)
+                    RequestDiscovery(true);
+            }
             else if ((openingDiscovery || waitingForStart) && properties != null)
             {
                 if (properties[GamePropertyKey.IsOpen] is bool open)
@@ -254,8 +277,27 @@ namespace ASAL
                         TryPublishStart();
                 }
             }
+            match?.Refresh();
             Changed?.Invoke();
         }
+
+        private void OnMatchApplied(MatchSnapshot snapshot)
+        {
+            cancelStart = false;
+            Error = null;
+            Phase = RoomPhase.Playing;
+            MatchApplied?.Invoke(snapshot);
+            Changed?.Invoke();
+        }
+
+        internal void StartStagingFailed(string message)
+        {
+            cancelStart = true;
+            nextCancelStart = 0;
+            SetMatchStatus(message);
+        }
+
+        internal void SetMatchStatus(string message) => ShowError(message);
 
         private void RequestDiscovery(bool open)
         {
@@ -269,7 +311,10 @@ namespace ASAL
         {
             confirmedOpenFlag = confirmedVisibleFlag = false;
             if (RosterAllowsStart() && photon.PublishStart())
+            {
+                deadline = Time.unscaledTime + 10f;
                 return;
+            }
 
             waitingForStart = false;
             RequestDiscovery(true);
@@ -278,6 +323,12 @@ namespace ASAL
 
         private void Update()
         {
+            match?.Tick();
+            if (cancelStart && Phase == RoomPhase.Starting && !photon.Busy && Time.unscaledTime >= nextCancelStart)
+            {
+                nextCancelStart = Time.unscaledTime + 2f;
+                photon.CancelStart();
+            }
             if ((waitingForDm || openingDiscovery || waitingForStart)
                 && Time.unscaledTime >= deadline && !photon.Busy)
                 AbortRoom("Photon did not confirm the room update.");
@@ -307,17 +358,18 @@ namespace ASAL
             RoomRules.CanKick(sender, user, photon.DmActor, photon.DmUser, target,
                 roster.Any(player => player.Active && player.Actor == target));
 
-        private void PublishSelection(SelectedCharacter value, bool ready)
+        private bool PublishSelection(SelectedCharacter value, bool ready)
         {
             if (!photon.PublishSelection(value, ready))
             {
                 ShowError("Could not update readiness.");
-                return;
+                return false;
             }
             selection = value;
             selectedReady = ready;
             Error = null;
             Changed?.Invoke();
+            return true;
         }
 
         private void ShowError(string message)

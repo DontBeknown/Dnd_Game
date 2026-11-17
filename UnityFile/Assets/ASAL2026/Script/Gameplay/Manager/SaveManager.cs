@@ -61,9 +61,11 @@ namespace ASAL
                 ?? throw new InvalidOperationException("The saved account profile has no display name.");
         }
 
-        internal async Task<CharacterData[]> LoadCharactersAsync(string uid)
+        internal Task<CharacterData[]> LoadCharactersAsync(string uid) => LoadCharactersAsync(uid, false);
+
+        internal async Task<CharacterData[]> LoadCharactersAsync(string uid, bool enemy)
         {
-            var snapshot = await Records("character_data", uid).GetValueAsync();
+            var snapshot = await CharacterRecords(uid, enemy).GetValueAsync();
             var records = new List<CharacterData>();
             foreach (var child in snapshot.Children)
             {
@@ -74,6 +76,45 @@ namespace ASAL
             return records.OrderBy(record => record.characterName, StringComparer.CurrentCulture)
                 .ThenBy(record => record.firebaseKey, StringComparer.Ordinal).ToArray();
         }
+
+        internal string NewCharacterId(string uid, bool enemy) => CharacterRecords(uid, enemy).Push().Key;
+
+        internal Task SaveCharacterAsync(string uid, bool enemy, CharacterData record) =>
+            CharacterRecords(uid, enemy).Child(CharacterId(record.firebaseKey)).UpdateChildrenAsync(CharacterUpdate(record));
+
+        internal Task DeleteCharacterAsync(string uid, bool enemy, string id) =>
+            CharacterRecords(uid, enemy).Child(CharacterId(id)).RemoveValueAsync();
+
+        private DatabaseReference CharacterRecords(string uid, bool enemy) =>
+            Records(enemy ? "enemy_data" : "character_data", uid);
+
+        private static string CharacterId(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id) || id.IndexOfAny(".#$[]/".ToCharArray()) >= 0 || id.Any(char.IsControl))
+                throw new FormatException("The character ID is invalid.");
+            return id;
+        }
+
+        private static Dictionary<string, object> CharacterUpdate(CharacterData record) => new()
+        {
+            ["characterName"] = record.characterName,
+            ["raceName"] = record.raceName,
+            ["characterClassName"] = record.characterClassName,
+            ["level"] = record.level,
+            ["HP"] = record.HP,
+            ["abilityPoint"] = record.abilityPoint,
+            ["abilityScorePoints"] = record.abilityScorePoints?.Select(ability => new Dictionary<string, object>
+            {
+                ["abilityScoreName"] = ability.abilityScoreName,
+                ["abilityScorePoint"] = ability.abilityScorePoint,
+                ["ablityModifierBonus"] = ability.ablityModifierBonus
+            }).ToList(),
+            ["skillData"] = record.skillData?.Select(skill => new Dictionary<string, object>
+            {
+                ["skillName"] = skill.skillName,
+                ["skillType"] = skill.skillType
+            }).ToList()
+        };
 
         internal async Task<KeyValuePair<string, string>[]> LoadMapIndexAsync(string uid)
         {

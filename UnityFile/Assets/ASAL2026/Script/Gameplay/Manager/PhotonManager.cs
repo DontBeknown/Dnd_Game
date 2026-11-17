@@ -7,7 +7,7 @@ using Photon.Realtime;
 
 namespace ASAL
 {
-    public sealed class PhotonManager : MonoBehaviourPunCallbacks, IOnEventCallback
+    public sealed partial class PhotonManager : MonoBehaviourPunCallbacks, IOnEventCallback
     {
         private const string SESSION_KEY = "asal2";
         private const string ACTOR_KEY = "dmActor";
@@ -137,7 +137,9 @@ namespace ASAL
                 CustomRoomProperties = new Hashtable
                 {
                     [SESSION_KEY] = Guid.NewGuid().ToString("N"),
-                    [PHASE_KEY] = (int)RoomPhase.Setup
+                    [PHASE_KEY] = (int)RoomPhase.Setup,
+                    [REVISION_KEY] = 0,
+                    [PROPOSAL_KEY] = string.Empty
                 },
                 CustomRoomPropertiesForLobby = new[] { SESSION_KEY }
             };
@@ -203,6 +205,13 @@ namespace ASAL
 
         public void OnEvent(EventData message)
         {
+            if (message.Code == MATCH_EVENT)
+            {
+                if (Current != null && message.CustomData is object[] data
+                    && Current.Players.TryGetValue(message.Sender, out var matchSender) && !matchSender.IsInactive)
+                    MatchReceived?.Invoke(matchSender.ActorNumber, matchSender.UserId, data);
+                return;
+            }
             if (!switchingAccount && Current != null && Session != null && message.Code == KICK_EVENT
                 && message.CustomData is string session && session == Session
                 && Current.Players.TryGetValue(message.Sender, out var sender) && !sender.IsInactive)

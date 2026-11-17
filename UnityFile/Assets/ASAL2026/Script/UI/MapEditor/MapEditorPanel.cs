@@ -22,6 +22,7 @@ namespace ASAL
         [SerializeField] private Button load;
         [SerializeField] private Button save;
         [SerializeField] private Button delete;
+        [SerializeField] private Button publish;
 
         private KeyValuePair<string, string>[] entries = Array.Empty<KeyValuePair<string, string>>();
         private AccountProfile account;
@@ -48,6 +49,14 @@ namespace ASAL
             load.onClick.AddListener(Load);
             save.onClick.AddListener(Save);
             delete.onClick.AddListener(Delete);
+            publish.onClick.AddListener(() => Run("Publishing map…", async () =>
+            {
+                if (!CanPublish)
+                    return;
+                await RoomManager.Instance.Match.PublishAsync(draft.Capture());
+                if (Current)
+                    status.text = "Map published.";
+            }));
             maps.onValueChanged.AddListener(_ =>
             {
                 confirmLoad = confirmDelete = false;
@@ -58,9 +67,19 @@ namespace ASAL
             RenderIndex(null);
         }
 
+        internal TilemapDataWrapper CaptureStartingMap()
+        {
+            var map = draft.Capture();
+            return map.tilemapDataList.Where(layer => layer.key == "Tilemap_Floor")
+                .SelectMany(layer => layer.tiles).Any(tile => MatchSnapshot.IsWalkable(map, tile.position)) ? map : null;
+        }
+
+        private bool CanPublish => RoomManager.Instance is { IsDm: true, Phase: RoomPhase.Playing };
+
         internal void Open()
         {
             enabled = true;
+            RenderControls();
             back.Select();
             if (!indexLoaded)
                 Run("Loading saved maps…", () => RefreshIndex(null));
@@ -253,6 +272,8 @@ namespace ASAL
 
         private void RenderControls()
         {
+            publish.gameObject.SetActive(CanPublish);
+            publish.interactable = !busy && CanPublish;
             maps.interactable = !busy && indexLoaded;
             load.interactable = !busy && indexLoaded;
             mapName.interactable = !busy;

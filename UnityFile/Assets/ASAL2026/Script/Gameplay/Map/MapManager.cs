@@ -48,17 +48,12 @@ namespace ASAL
             placedTiles.Add(map, new Dictionary<Vector3Int, string>());
         }
 
-        private void BuildCatalog()
-        {
-            buildables = new Dictionary<string, BuildingObjectBase>(StringComparer.Ordinal);
-            foreach (var item in Resources.LoadAll<BuildingObjectBase>("Map/Scriptables/Buildables")
-                .OrderBy(item => item.name, StringComparer.Ordinal))
-            {
-                if (!item.TileBase)
-                    continue;
-                buildables.Add(item.name, item);
-            }
-        }
+        private void BuildCatalog() => buildables = LoadBuildables();
+
+        internal static Dictionary<string, BuildingObjectBase> LoadBuildables() =>
+            Resources.LoadAll<BuildingObjectBase>("Map/Scriptables/Buildables")
+                .Where(item => item.TileBase).OrderBy(item => item.name, StringComparer.Ordinal)
+                .ToDictionary(item => item.name, StringComparer.Ordinal);
 
         internal Vector3Int CellAt(Vector2 position)
         {

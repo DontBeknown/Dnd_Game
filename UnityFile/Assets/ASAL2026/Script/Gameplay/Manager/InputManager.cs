@@ -27,6 +27,11 @@ namespace ASAL
             }
         }
 
+        internal Vector2 BoardPointer => EditorPointer;
+        internal bool BoardClick => EditorStrokeStarted;
+        internal float BoardZoom => EditorZoom;
+        internal Vector2 BoardPan => EditorPan;
+
         private readonly List<InputActionReference> actionReferences = new();
         private PlayerInput input;
         private InputSystemUIInputModule module;

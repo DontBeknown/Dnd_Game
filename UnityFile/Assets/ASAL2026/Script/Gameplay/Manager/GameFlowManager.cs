@@ -22,6 +22,8 @@ namespace ASAL
 
         internal void Begin()
         {
+            RoomManager.Instance.StartRequested += OnStartRequested;
+            RoomManager.Instance.MatchApplied += OnMatchApplied;
             AuthManager.Instance.AccountChanged += OnAccountChanged;
             AuthManager.Instance.StatusChanged += RefreshAccountStatus;
             UIManager.Instance.ShowSignIn();
@@ -30,9 +32,20 @@ namespace ASAL
 
         internal void Shutdown()
         {
+            RoomManager.Instance.StartRequested -= OnStartRequested;
+            RoomManager.Instance.MatchApplied -= OnMatchApplied;
             AuthManager.Instance.AccountChanged -= OnAccountChanged;
             AuthManager.Instance.StatusChanged -= RefreshAccountStatus;
         }
+
+        private static void OnStartRequested(string session)
+        {
+            var room = RoomManager.Instance;
+            if (room.IsDm && room.Session == session)
+                room.Match.Start(UIManager.Instance.CaptureStartingMap());
+        }
+
+        private static void OnMatchApplied(MatchSnapshot snapshot) => UIManager.Instance.ShowPlay(snapshot);
 
         private static void OnAccountChanged(AccountProfile account)
         {
