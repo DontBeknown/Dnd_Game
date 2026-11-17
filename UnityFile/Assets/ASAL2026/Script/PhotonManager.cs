@@ -9,17 +9,17 @@ namespace ASAL
 {
     public sealed class PhotonManager : MonoBehaviourPunCallbacks, IOnEventCallback
     {
-        private const string SessionKey = "asal2";
-        private const string ActorKey = "dmActor";
-        private const string UserKey = "dmUser";
-        private const string PhaseKey = "roomPhase";
-        private const string CharacterKey = "characterId";
-        private const string CharacterNameKey = "characterName";
-        private const string ReadyKey = "ready";
-        private const byte KickEvent = 42;
+        private const string SESSION_KEY = "asal2";
+        private const string ACTOR_KEY = "dmActor";
+        private const string USER_KEY = "dmUser";
+        private const string PHASE_KEY = "roomPhase";
+        private const string CHARACTER_KEY = "characterId";
+        private const string CHARACTER_NAME_KEY = "characterName";
+        private const string READY_KEY = "ready";
+        private const byte KICK_EVENT = 42;
 
         private static readonly string[] SetupPlayerProperties =
-            { SessionKey, CharacterKey, CharacterNameKey, ReadyKey };
+            { SESSION_KEY, CHARACTER_KEY, CHARACTER_NAME_KEY, READY_KEY };
         private readonly Dictionary<string, DiscoveredRoom> rooms = new();
         private AccountProfile account;
         private bool switchingAccount;
@@ -43,10 +43,10 @@ namespace ASAL
             ? PhotonNetwork.CurrentRoom : null;
         internal int LocalActor => PhotonNetwork.LocalPlayer.ActorNumber;
         internal string LocalUser => PhotonNetwork.LocalPlayer.UserId;
-        internal string Session => Current?.CustomProperties[SessionKey] as string;
-        internal int DmActor => Current?.CustomProperties[ActorKey] is int actor ? actor : 0;
-        internal string DmUser => Current?.CustomProperties[UserKey] as string;
-        internal bool Started => Current?.CustomProperties[PhaseKey] is int phase && phase == (int)RoomPhase.Starting;
+        internal string Session => Current?.CustomProperties[SESSION_KEY] as string;
+        internal int DmActor => Current?.CustomProperties[ACTOR_KEY] is int actor ? actor : 0;
+        internal string DmUser => Current?.CustomProperties[USER_KEY] as string;
+        internal bool Started => Current?.CustomProperties[PHASE_KEY] is int phase && phase == (int)RoomPhase.Starting;
         internal bool IsMaster => PhotonNetwork.IsMasterClient;
 
         internal void Register()
@@ -136,10 +136,10 @@ namespace ASAL
                 BroadcastPropsChangeToAll = true,
                 CustomRoomProperties = new Hashtable
                 {
-                    [SessionKey] = Guid.NewGuid().ToString("N"),
-                    [PhaseKey] = (int)RoomPhase.Setup
+                    [SESSION_KEY] = Guid.NewGuid().ToString("N"),
+                    [PHASE_KEY] = (int)RoomPhase.Setup
                 },
-                CustomRoomPropertiesForLobby = new[] { SessionKey }
+                CustomRoomPropertiesForLobby = new[] { SESSION_KEY }
             };
             Begin(PhotonNetwork.CreateRoom(roomName, options, TypedLobby.Default), "Could not create the room.");
         }
@@ -161,8 +161,8 @@ namespace ASAL
 
         internal bool PublishDm() => Current.SetCustomProperties(new Hashtable
         {
-            [ActorKey] = LocalActor,
-            [UserKey] = LocalUser
+            [ACTOR_KEY] = LocalActor,
+            [USER_KEY] = LocalUser
         });
 
         internal void SetDiscovery(bool open)
@@ -172,8 +172,8 @@ namespace ASAL
         }
 
         internal bool PublishStart() => Current.SetCustomProperties(
-            new Hashtable { [PhaseKey] = (int)RoomPhase.Starting },
-            new Hashtable { [PhaseKey] = (int)RoomPhase.Setup });
+            new Hashtable { [PHASE_KEY] = (int)RoomPhase.Starting },
+            new Hashtable { [PHASE_KEY] = (int)RoomPhase.Setup });
 
         internal RoomMember[] ReadRoster()
         {
@@ -181,29 +181,29 @@ namespace ASAL
             return Current.Players.Values.OrderBy(player => player.ActorNumber).Select(player =>
             {
                 var props = player.CustomProperties;
-                var belongs = session != null && props[SessionKey] as string == session;
+                var belongs = session != null && props[SESSION_KEY] as string == session;
                 return new RoomMember(player.ActorNumber, player.UserId, player.NickName, !player.IsInactive,
-                    belongs ? props[CharacterKey] as string : null,
-                    belongs ? props[CharacterNameKey] as string : null,
-                    belongs && props[ReadyKey] is bool ready && ready);
+                    belongs ? props[CHARACTER_KEY] as string : null,
+                    belongs ? props[CHARACTER_NAME_KEY] as string : null,
+                    belongs && props[READY_KEY] is bool ready && ready);
             }).ToArray();
         }
 
         internal bool PublishSelection(SelectedCharacter selection, bool ready) =>
             PhotonNetwork.LocalPlayer.SetCustomProperties(new Hashtable
             {
-                [SessionKey] = Session,
-                [CharacterKey] = selection?.RecordId ?? string.Empty,
-                [CharacterNameKey] = selection?.DisplayName ?? string.Empty,
-                [ReadyKey] = ready
+                [SESSION_KEY] = Session,
+                [CHARACTER_KEY] = selection?.RecordId ?? string.Empty,
+                [CHARACTER_NAME_KEY] = selection?.DisplayName ?? string.Empty,
+                [READY_KEY] = ready
             });
 
-        internal bool SendKick(int actor) => PhotonNetwork.RaiseEvent(KickEvent, Session,
+        internal bool SendKick(int actor) => PhotonNetwork.RaiseEvent(KICK_EVENT, Session,
             new RaiseEventOptions { TargetActors = new[] { actor } }, SendOptions.SendReliable);
 
         public void OnEvent(EventData message)
         {
-            if (!switchingAccount && Current != null && Session != null && message.Code == KickEvent
+            if (!switchingAccount && Current != null && Session != null && message.Code == KICK_EVENT
                 && message.CustomData is string session && session == Session
                 && Current.Players.TryGetValue(message.Sender, out var sender) && !sender.IsInactive)
                 KickReceived?.Invoke(sender.ActorNumber, sender.UserId);
@@ -285,7 +285,7 @@ namespace ASAL
             foreach (var info in updates)
             {
                 if (info.RemovedFromList || !info.IsOpen || !info.IsVisible || info.PlayerCount >= info.MaxPlayers
-                    || info.CustomProperties[SessionKey] is not string)
+                    || info.CustomProperties[SESSION_KEY] is not string)
                     rooms.Remove(info.Name);
                 else
                     rooms[info.Name] = new DiscoveredRoom(info.Name, info.PlayerCount, info.MaxPlayers);
