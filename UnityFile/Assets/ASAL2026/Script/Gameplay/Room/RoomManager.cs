@@ -38,6 +38,7 @@ namespace ASAL
         internal bool CanLeave => InRoom && !photon.Busy;
         internal bool LocalReady => selectedReady;
         internal bool HasSelection => selection != null;
+        internal string SelectedCharacterId => selection?.RecordId;
         internal IReadOnlyList<RoomMember> Roster => roster;
         internal IReadOnlyCollection<DiscoveredRoom> Rooms => photon.Rooms;
 

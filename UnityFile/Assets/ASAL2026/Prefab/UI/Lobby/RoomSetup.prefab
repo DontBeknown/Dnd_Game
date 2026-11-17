@@ -56,6 +56,8 @@ MonoBehaviour:
   leave: {fileID: 8921460279921111202}
   start: {fileID: 8389206138949112002}
   ready: {fileID: 222219277094684318}
+  selectCharacter: {fileID: 7847754466509468034}
+  mapEditor: {fileID: 3079499167977848043}
   content: {fileID: 5004282915436362715}
   rowPrefab: {fileID: 6325218499273698348, guid: 7a29eb61008bdb01d99a970a9b9adf8a, type: 3}
 --- !u!1 &1390187805478683747
@@ -297,19 +299,7 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 9222535039096744684}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls:
-      - m_Target: {fileID: 0}
-        m_TargetAssemblyTypeName: MapSwitch, Assembly-CSharp
-        m_MethodName: ChangeToMapScene
-        m_Mode: 5
-        m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
-          m_IntArgument: 0
-          m_FloatArgument: 0
-          m_StringArgument: MapMaker
-          m_BoolArgument: 0
-        m_CallState: 2
+      m_Calls: []
 --- !u!1 &1987599891865654113
 GameObject:
   m_ObjectHideFlags: 0
@@ -429,19 +419,7 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1787271578808300312}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls:
-      - m_Target: {fileID: 0}
-        m_TargetAssemblyTypeName: Launcher, Assembly-CSharp
-        m_MethodName: SelectCharacter
-        m_Mode: 1
-        m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
-          m_IntArgument: 0
-          m_FloatArgument: 0
-          m_StringArgument: 
-          m_BoolArgument: 0
-        m_CallState: 2
+      m_Calls: []
 --- !u!1 &3137217830210794514
 GameObject:
   m_ObjectHideFlags: 0
@@ -950,19 +928,7 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 876959285028871028}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls:
-      - m_Target: {fileID: 0}
-        m_TargetAssemblyTypeName: Laucher, Assembly-CSharp
-        m_MethodName: LeaveRoom
-        m_Mode: 1
-        m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
-          m_IntArgument: 0
-          m_FloatArgument: 0
-          m_StringArgument: 
-          m_BoolArgument: 0
-        m_CallState: 2
+      m_Calls: []
 --- !u!1 &6791737256246362816
 GameObject:
   m_ObjectHideFlags: 0
@@ -1256,31 +1222,7 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 626672211757824157}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls:
-      - m_Target: {fileID: 0}
-        m_TargetAssemblyTypeName: Launcher, Assembly-CSharp
-        m_MethodName: StartGame
-        m_Mode: 1
-        m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
-          m_IntArgument: 0
-          m_FloatArgument: 0
-          m_StringArgument: 
-          m_BoolArgument: 0
-        m_CallState: 2
-      - m_Target: {fileID: 0}
-        m_TargetAssemblyTypeName: Launcher, Assembly-CSharp
-        m_MethodName: 
-        m_Mode: 1
-        m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: 
-          m_IntArgument: 0
-          m_FloatArgument: 0
-          m_StringArgument: 
-          m_BoolArgument: 0
-        m_CallState: 2
+      m_Calls: []
 --- !u!1 &8426446718270237885
 GameObject:
   m_ObjectHideFlags: 0

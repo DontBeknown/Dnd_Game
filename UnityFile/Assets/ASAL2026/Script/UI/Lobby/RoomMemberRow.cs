@@ -13,6 +13,8 @@ namespace ASAL
         [SerializeField] private GameObject notReadyFlag;
         [SerializeField] private GameObject playerBG;
         [SerializeField] private GameObject dmBG;
+        [SerializeField] private Color dmColor = new Color(0.8f, 0.8f, 1f);
+        [SerializeField] private Color playerColor = new Color(1f, 1f, 1f);
 
         private int actor;
 
@@ -29,6 +31,7 @@ namespace ASAL
 
             playerNameText.text = name;
             readyStatusText.text = dm ? string.Empty : player.Ready ? "Ready" : "Not Ready";
+            playerNameText.color = dm ? dmColor : playerColor;
             readyFlag.SetActive(!dm && player.Ready);
             notReadyFlag.SetActive(!dm && !player.Ready);
             playerBG.SetActive(!dm);

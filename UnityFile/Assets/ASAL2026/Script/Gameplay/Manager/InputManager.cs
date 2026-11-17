@@ -10,6 +10,23 @@ namespace ASAL
     {
         public static InputManager Instance { get; private set; }
 
+        internal Vector2 EditorPointer => Mouse.current?.position.ReadValue() ?? Vector2.zero;
+        internal bool EditorStrokeStarted => Mouse.current?.leftButton.wasPressedThisFrame == true;
+        internal bool EditorStrokeEnded => Mouse.current?.leftButton.wasReleasedThisFrame == true;
+        internal bool EditorCancelStroke => Mouse.current?.rightButton.wasPressedThisFrame == true;
+        internal float EditorZoom => Mathf.Clamp(Mouse.current?.scroll.y.ReadValue() ?? 0, -1, 1);
+        internal Vector2 EditorPan
+        {
+            get
+            {
+                var keyboard = Keyboard.current;
+                if (keyboard == null)
+                    return Vector2.zero;
+                return new Vector2((keyboard.dKey.isPressed ? 1 : 0) - (keyboard.aKey.isPressed ? 1 : 0),
+                    (keyboard.wKey.isPressed ? 1 : 0) - (keyboard.sKey.isPressed ? 1 : 0)).normalized;
+            }
+        }
+
         private readonly List<InputActionReference> actionReferences = new();
         private PlayerInput input;
         private InputSystemUIInputModule module;

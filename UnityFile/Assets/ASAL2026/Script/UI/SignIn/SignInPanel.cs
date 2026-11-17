@@ -31,7 +31,10 @@ namespace ASAL
         [SerializeField] private ErrorPanel errorPanelPrefab;
 
         private ErrorPanel errorPanel;
+        private readonly TabTransition tabs = new();
         private bool showingRecovery;
+
+        private void OnDisable() => tabs.Finish();
 
         private void Awake()
         {
@@ -140,9 +143,13 @@ namespace ASAL
         private void ShowView(GameObject view, Selectable firstControl)
         {
             showingRecovery = view == recoveryView;
-            loginView.SetActive(view == loginView);
-            registrationView.SetActive(view == registrationView);
-            recoveryView.SetActive(showingRecovery);
+            if (!tabs.Current)
+            {
+                loginView.SetActive(view == loginView);
+                registrationView.SetActive(view == registrationView);
+                recoveryView.SetActive(showingRecovery);
+            }
+            tabs.Show(view);
             if (firstControl.isActiveAndEnabled && EventSystem.current)
                 EventSystem.current.SetSelectedGameObject(firstControl.gameObject);
         }

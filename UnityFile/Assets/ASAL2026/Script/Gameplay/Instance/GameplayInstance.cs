@@ -4,6 +4,7 @@ using UnityEngine;
 
 namespace ASAL
 {
+    [DefaultExecutionOrder(-1000)]
     public sealed class GameplayInstance : MonoBehaviour
     {
         [SerializeField] private GameObject managerGroup;
@@ -20,10 +21,11 @@ namespace ASAL
         {
             try
             {
-                RequireInactiveChild(managerGroup, nameof(managerGroup));
-                RequireInactiveChild(uiShell, nameof(uiShell));
-                managers = managerGroup;
-                shell = uiShell;
+                managers = ResolveChild(managerGroup, nameof(managerGroup),
+                    child => child.GetComponentInChildren<UIManager>(true));
+                shell = ResolveChild(uiShell, nameof(uiShell), child => child.GetComponent<UIShell>());
+                managers.SetActive(false);
+                shell.SetActive(false);
 
                 var input = RequireManager<InputManager>(managers);
                 var ui = RequireManager<UIManager>(managers);
@@ -59,10 +61,24 @@ namespace ASAL
             }
         }
 
-        private void RequireInactiveChild(GameObject root, string fieldName)
+        private GameObject ResolveChild(GameObject assigned, string fieldName, Func<GameObject, bool> matches)
         {
-            if (!root || root.activeSelf || root.transform.parent != transform)
-                throw new InvalidOperationException($"{fieldName} must reference an inactive child of GameplayInstance.");
+            if (assigned && assigned.transform.parent == transform && matches(assigned))
+                return assigned;
+
+            GameObject candidate = null;
+            foreach (Transform child in transform)
+            {
+                if (!matches(child.gameObject))
+                    continue;
+                if (candidate)
+                    throw new InvalidOperationException($"Assign {fieldName} on GameplayInstance. Multiple direct children match.");
+                candidate = child.gameObject;
+            }
+
+            if (!candidate)
+                throw new InvalidOperationException($"Assign {fieldName} on GameplayInstance. No matching direct child was found.");
+            return candidate;
         }
 
         private static T RequireManager<T>(GameObject root) where T : MonoBehaviour

@@ -27,9 +27,12 @@ namespace ASAL
         [SerializeField] private LobbyRoomRow rowPrefab;
 
         private readonly Dictionary<string, LobbyRoomRow> rows = new();
+        private readonly TabTransition tabs = new();
         private View view;
 
         private enum View { Title, FindRoom, CreateRoom }
+
+        private void OnDisable() => tabs.Finish();
 
         private void Awake()
         {
@@ -88,9 +91,19 @@ namespace ASAL
         private void RenderView(RoomManager model)
         {
             bool connected = model.Discovering;
-            titleView.SetActive(view == View.Title);
-            findRoomView.SetActive(view == View.FindRoom);
-            createRoomView.SetActive(view == View.CreateRoom);
+            var next = view switch
+            {
+                View.FindRoom => findRoomView,
+                View.CreateRoom => createRoomView,
+                _ => titleView
+            };
+            if (!tabs.Current)
+            {
+                titleView.SetActive(next == titleView);
+                findRoomView.SetActive(next == findRoomView);
+                createRoomView.SetActive(next == createRoomView);
+            }
+            tabs.Show(next);
             openFindRoom.interactable = connected;
             openCreateRoom.interactable = connected;
             create.interactable = connected;

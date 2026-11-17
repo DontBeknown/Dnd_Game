@@ -119,6 +119,11 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &815259896 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 6092796176617297648, guid: bfeb35c0838186b44b7fd23eb7aad841, type: 3}
+  m_PrefabInstance: {fileID: 2003455369}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &1850324780
 GameObject:
   m_ObjectHideFlags: 0
@@ -234,16 +239,16 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5542834851269652344, guid: 1956f523673d78c4581c225fa1b3e72e, type: 3}
       propertyPath: m_IsActive
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
-    - target: {fileID: 8155871304580042227, guid: 1956f523673d78c4581c225fa1b3e72e, type: 3}
-      propertyPath: roomPrefab
-      value: 
-      objectReference: {fileID: 2003455372}
     - target: {fileID: 8155871304580042227, guid: 1956f523673d78c4581c225fa1b3e72e, type: 3}
       propertyPath: lobbyPrefab
       value: 
       objectReference: {fileID: 2003455370}
+    - target: {fileID: 8155871304580042227, guid: 1956f523673d78c4581c225fa1b3e72e, type: 3}
+      propertyPath: mainBackGround
+      value: 
+      objectReference: {fileID: 815259896}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -273,7 +278,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1098324384, guid: bfeb35c0838186b44b7fd23eb7aad841, type: 3}
       propertyPath: m_IsActive
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 1098324388, guid: bfeb35c0838186b44b7fd23eb7aad841, type: 3}
       propertyPath: m_Pivot.x
@@ -395,9 +400,21 @@ PrefabInstance:
       propertyPath: m_IsActive
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 1319383325845986877, guid: bfeb35c0838186b44b7fd23eb7aad841, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 2153155372602831523, guid: bfeb35c0838186b44b7fd23eb7aad841, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 2153155372606227788, guid: bfeb35c0838186b44b7fd23eb7aad841, type: 3}
       propertyPath: m_IsActive
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3386205829106974888, guid: bfeb35c0838186b44b7fd23eb7aad841, type: 3}
+      propertyPath: m_Color.a
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 4163233546584382159, guid: bfeb35c0838186b44b7fd23eb7aad841, type: 3}
       propertyPath: m_Name
@@ -447,6 +464,10 @@ PrefabInstance:
       propertyPath: m_IsActive
       value: 1
       objectReference: {fileID: 0}
+    - target: {fileID: 8817451110859294385, guid: bfeb35c0838186b44b7fd23eb7aad841, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects:
     - {fileID: 6881803400790931854, guid: bfeb35c0838186b44b7fd23eb7aad841, type: 3}
@@ -469,17 +490,11 @@ RectTransform:
   m_CorrespondingSourceObject: {fileID: 1098324388, guid: bfeb35c0838186b44b7fd23eb7aad841, type: 3}
   m_PrefabInstance: {fileID: 2003455369}
   m_PrefabAsset: {fileID: 0}
---- !u!114 &2003455372 stripped
-MonoBehaviour:
-  m_CorrespondingSourceObject: {fileID: 1319383325476342847, guid: bfeb35c0838186b44b7fd23eb7aad841, type: 3}
+--- !u!1 &2003455372 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 1098324384, guid: bfeb35c0838186b44b7fd23eb7aad841, type: 3}
   m_PrefabInstance: {fileID: 2003455369}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: deafc8d9f64451ddfebfb15302ad8425, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ASAL.RoomSetupPanel
 --- !u!1001 &5046598535416486824
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -491,7 +506,7 @@ PrefabInstance:
     - target: {fileID: 564205076510010962, guid: 1fc2c7aa38a762f4cb0460095a6635be, type: 3}
       propertyPath: uiShell
       value: 
-      objectReference: {fileID: 0}
+      objectReference: {fileID: 2003455372}
     - target: {fileID: 564205076510010962, guid: 1fc2c7aa38a762f4cb0460095a6635be, type: 3}
       propertyPath: managerGroup
       value: 
