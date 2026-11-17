@@ -36,10 +36,11 @@ namespace ASAL
 
         private static void OnAccountChanged(AccountProfile account)
         {
+            RoomManager.Instance.SetAccount(account);
             if (account == null)
                 UIManager.Instance.ShowSignIn();
             else
-                UIManager.Instance.ShowSignedIn(account);
+                UIManager.Instance.ShowLobby(account);
 
             RefreshAccountStatus();
         }

@@ -44,3 +44,5 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 18348c6ca725903419ca08edbf4db569, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ASAL.UIManager
+  lobbyPrefab: {fileID: 910050, guid: 9841cab1bcb58f2e0305f5fa8862a506, type: 3}
+  roomPrefab: {fileID: 910050, guid: 4ba9d80d27166ab273143f601503ea5a, type: 3}

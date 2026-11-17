@@ -28,10 +28,6 @@ namespace ASAL
         [SerializeField] private TMP_InputField recoveryName;
         [SerializeField] private Button recoverySubmit;
 
-        [SerializeField] private GameObject signedInView;
-        [SerializeField] private TMP_Text signedInName;
-        [SerializeField] private Button signedInSignOut;
-
         [SerializeField] private ErrorPanel errorPanelPrefab;
 
         private ErrorPanel errorPanel;
@@ -42,7 +38,6 @@ namespace ASAL
             BindButton(loginSubmit, SubmitLogin);
             BindButton(registrationSubmit, SubmitRegistration);
             BindButton(recoverySubmit, SubmitProfile);
-            BindButton(signedInSignOut, SignOut);
             BindButton(openRegistration, ShowRegistration);
             BindButton(openLogin, ShowLogin);
             BindButton(loginQuit, Quit);
@@ -73,7 +68,6 @@ namespace ASAL
                 || !registrationView || !registrationName || !registrationEmail || !registrationPassword
                 || !registrationConfirmation || !registrationSubmit
                 || !recoveryView || !recoveryName || !recoverySubmit
-                || !signedInView || !signedInName || !signedInSignOut
                 || !errorPanelPrefab || !errorPanelPrefab.errorText || !errorPanelPrefab.closeErrorButton)
             {
                 throw new InvalidOperationException("Assign all SignInPanel Inspector fields.");
@@ -83,7 +77,6 @@ namespace ASAL
         public void ShowLogin()
         {
             ClearPasswords();
-            signedInName.text = string.Empty;
             recoveryName.text = string.Empty;
             ShowView(loginView, loginEmail);
         }
@@ -103,16 +96,7 @@ namespace ASAL
                 registrationPassword.text, registrationConfirmation.text);
 
         public void SubmitProfile() => AuthManager.Instance.RetryProfile(recoveryName.text);
-        public void SignOut() => AuthManager.Instance.SignOut();
         public void Quit() => Application.Quit();
-
-        internal void ShowSignedIn(string displayName)
-        {
-            ClearPasswords();
-            signedInName.richText = false;
-            signedInName.text = displayName;
-            ShowView(signedInView, signedInSignOut);
-        }
 
         internal void Refresh(AuthManager auth)
         {
@@ -159,7 +143,6 @@ namespace ASAL
             loginView.SetActive(view == loginView);
             registrationView.SetActive(view == registrationView);
             recoveryView.SetActive(showingRecovery);
-            signedInView.SetActive(view == signedInView);
             if (firstControl.isActiveAndEnabled && EventSystem.current)
                 EventSystem.current.SetSelectedGameObject(firstControl.gameObject);
         }

@@ -29,12 +29,16 @@ namespace ASAL
                 var ui = RequireManager<UIManager>(managers);
                 var auth = RequireManager<AuthManager>(managers);
                 var saves = RequireManager<SaveManager>(managers);
+                var photon = RequireManager<PhotonManager>(managers);
+                var rooms = RequireManager<RoomManager>(managers);
                 var flow = RequireManager<GameFlowManager>(managers);
 
                 Register(input.Register, input.Unregister);
                 Register(ui.Register, ui.Unregister);
                 Register(auth.Register, auth.Unregister);
                 Register(saves.Register, saves.Unregister);
+                Register(photon.Register, photon.Unregister);
+                Register(rooms.Register, rooms.Unregister);
                 Register(flow.Register, flow.Unregister);
 
                 var shellView = UIShell.Resolve(shell);
@@ -42,6 +46,8 @@ namespace ASAL
                 Initialize(() => ui.Initialize(shellView.ScreenRoot), ui.Shutdown);
                 Initialize(auth.Initialize, auth.Shutdown);
                 saves.Initialize();
+                cleanup.Push(photon.Shutdown);
+                Initialize(rooms.Initialize, rooms.Shutdown);
                 managers.SetActive(true);
                 shell.SetActive(true);
                 Initialize(flow.Begin, flow.Shutdown);

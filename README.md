@@ -37,6 +37,12 @@
 
 ---
 
+## Game redesign
+
+1. [Game requirements](docs/01-game-requirements.md)
+2. [Implementation architecture](docs/02-implementation-architecture.md)
+3. [Phased implementation plan](docs/implementation/README.md)
+
 ## 🛠️ Installation Guides
 
 ### 👥 **For General Players**  
