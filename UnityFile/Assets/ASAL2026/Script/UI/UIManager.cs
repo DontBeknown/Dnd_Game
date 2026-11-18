@@ -13,7 +13,6 @@ namespace ASAL
         [SerializeField] private RoomSetupPanel roomPrefab;
         [SerializeField] private CharacterEditorPanel characterPickerPrefab;
         [SerializeField] private MapEditorPanel mapEditorPrefab;
-        [SerializeField] private CharacterEditorPanel characterEditorPrefab;
         [SerializeField] private PlayPanel playPrefab;
 
         private SignInPanel signInPanel;
@@ -170,7 +169,7 @@ namespace ASAL
                 return;
 
             editorReturnFocus = focus;
-            recordEditor = Instantiate(enemy ? characterPickerPrefab : characterEditorPrefab, screenRoot, false);
+            recordEditor = Instantiate(characterPickerPrefab, screenRoot, false);
             screens.Show(recordEditor.gameObject, () => recordEditor.Open(account, enemy, CloseRecordEditor));
         }
 

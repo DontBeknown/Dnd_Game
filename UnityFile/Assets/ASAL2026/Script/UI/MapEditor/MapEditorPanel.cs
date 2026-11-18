@@ -22,7 +22,6 @@ namespace ASAL
         [SerializeField] private Button load;
         [SerializeField] private Button save;
         [SerializeField] private Button delete;
-        [SerializeField] private Button publish;
 
         private KeyValuePair<string, string>[] entries = Array.Empty<KeyValuePair<string, string>>();
         private AccountProfile account;
@@ -49,14 +48,6 @@ namespace ASAL
             load.onClick.AddListener(Load);
             save.onClick.AddListener(Save);
             delete.onClick.AddListener(Delete);
-            publish.onClick.AddListener(() => Run("Publishing map…", async () =>
-            {
-                if (!CanPublish)
-                    return;
-                await RoomManager.Instance.Match.PublishAsync(draft.Capture());
-                if (Current)
-                    status.text = "Map published.";
-            }));
             maps.onValueChanged.AddListener(_ =>
             {
                 confirmLoad = confirmDelete = false;
@@ -73,8 +64,6 @@ namespace ASAL
             return map.tilemapDataList.Where(layer => layer.key == "Tilemap_Floor")
                 .SelectMany(layer => layer.tiles).Any(tile => MatchSnapshot.IsWalkable(map, tile.position)) ? map : null;
         }
-
-        private bool CanPublish => RoomManager.Instance is { IsDm: true, Phase: RoomPhase.Playing };
 
         internal void Open()
         {
@@ -158,15 +147,29 @@ namespace ASAL
             if (!brush)
                 return;
             var cell = draft.CellAt(input.EditorPointer);
-            if (input.EditorStrokeStarted)
+            PaintStroke(cell, input.EditorStrokeStarted, input.EditorStrokeEnded);
+        }
+
+        private void PaintStroke(Vector3Int cell, bool started, bool ended)
+        {
+            if (started)
                 stroke = cell;
-            if (stroke.HasValue && input.EditorStrokeEnded)
+            if (brush is BuildingTool)
+            {
+                if (stroke.HasValue && (previewCell != cell || started))
+                    draft.Paint(brush, cell, cell, false);
+                if (ended)
+                    stroke = null;
+                previewCell = cell;
+                return;
+            }
+            if (stroke.HasValue && ended)
             {
                 draft.Paint(brush, stroke.Value, cell, false);
                 stroke = null;
                 previewCell = null;
             }
-            else if (previewCell != cell || input.EditorStrokeStarted)
+            else if (previewCell != cell || started)
             {
                 draft.Paint(brush, stroke ?? cell, cell, true);
                 previewCell = cell;
@@ -197,11 +200,20 @@ namespace ASAL
                 return;
             }
             var name = entries[maps.value - 1].Value;
+            var room = RoomManager.Instance;
+            var session = room.Session;
+            var phase = room.Phase;
             Run("Loading map…", async () =>
             {
                 var body = await SaveManager.Instance.LoadMapAsync(account.Uid, id);
-                if (!Current)
+                if (!Current || room.Session != session || room.Phase != phase)
                     return;
+                if (phase == RoomPhase.Playing)
+                {
+                    await room.Match.PublishAsync(body);
+                    if (!Current || room.Session != session || room.Phase != phase)
+                        return;
+                }
                 draft.Replace(id, body);
                 mapName.text = draftName = name;
                 status.text = "Map loaded.";
@@ -272,8 +284,6 @@ namespace ASAL
 
         private void RenderControls()
         {
-            publish.gameObject.SetActive(CanPublish);
-            publish.interactable = !busy && CanPublish;
             maps.interactable = !busy && indexLoaded;
             load.interactable = !busy && indexLoaded;
             mapName.interactable = !busy;

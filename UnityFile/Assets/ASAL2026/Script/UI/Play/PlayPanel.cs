@@ -100,7 +100,7 @@ namespace ASAL
         {
             leave.interactable = room.CanLeave;
             status.text = room.Error ?? templateError ?? (snapshot?.Map == null
-                ? room.IsDm ? "Open MapMaker to publish the first map." : "Waiting for the DM to publish a map."
+                ? room.IsDm ? "Open MapMaker and load a saved map." : "Waiting for the DM to load a map."
                 : "Choose a token, then click a floor cell to place or move it. Use WASD to pan.");
         }
 

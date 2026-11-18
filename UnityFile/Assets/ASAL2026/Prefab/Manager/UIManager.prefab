@@ -49,5 +49,4 @@ MonoBehaviour:
   roomPrefab: {fileID: 910050, guid: 4ba9d80d27166ab273143f601503ea5a, type: 3}
   characterPickerPrefab: {fileID: 4783800597841175349, guid: 4567a501c3f3cf04ab18e2e64b4d3763, type: 3}
   mapEditorPrefab: {fileID: 2973490607190957071, guid: 02c141e9186938d44ba38d53e5758c0a, type: 3}
-  characterEditorPrefab: {fileID: 7502687588827292392, guid: f55d802c90651e54d9909e1debe0da4f, type: 3}
   playPrefab: {fileID: 8405012758290302497, guid: 67a1b54f4c836fc4b89b8eb387ce312a, type: 3}

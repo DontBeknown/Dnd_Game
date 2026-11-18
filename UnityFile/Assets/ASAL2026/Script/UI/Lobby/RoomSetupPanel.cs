@@ -18,7 +18,6 @@ namespace ASAL
         [SerializeField] private Button ready;
         [SerializeField] private Button selectCharacter;
         [SerializeField] private Button mapEditor;
-        [SerializeField] private Button manageEnemies;
         [SerializeField] private RectTransform content;
         [SerializeField] private RoomMemberRow rowPrefab;
 
@@ -30,9 +29,14 @@ namespace ASAL
             leave.onClick.AddListener(rooms.Leave);
             start.onClick.AddListener(rooms.StartMatch);
             ready.onClick.AddListener(() => rooms.SetReady(!rooms.LocalReady));
-            selectCharacter.onClick.AddListener(UIManager.Instance.OpenCharacterPicker);
+            selectCharacter.onClick.AddListener(() =>
+            {
+                if (rooms.IsDm)
+                    UIManager.Instance.OpenRecordEditor(true, selectCharacter);
+                else
+                    UIManager.Instance.OpenCharacterPicker();
+            });
             mapEditor.onClick.AddListener(UIManager.Instance.OpenMapEditor);
-            manageEnemies.onClick.AddListener(() => UIManager.Instance.OpenRecordEditor(true, manageEnemies));
         }
 
         internal void FocusFeature(bool isDm)
@@ -50,10 +54,10 @@ namespace ASAL
             start.interactable = model.CanEditRoom;
             ready.gameObject.SetActive(!model.IsDm && model.Phase == RoomPhase.Setup);
             ready.interactable = model.CanEditRoom && model.HasSelection;
-            selectCharacter.gameObject.SetActive(!model.IsDm && model.Phase == RoomPhase.Setup);
+            selectCharacter.gameObject.SetActive(model.Phase == RoomPhase.Setup);
+            selectCharacter.GetComponentInChildren<TMP_Text>(true).text = model.IsDm ? "Manage Enemies" : "Select Character";
             mapEditor.gameObject.SetActive(model.IsDm && model.Phase == RoomPhase.Setup);
-            manageEnemies.gameObject.SetActive(model.IsDm && model.Phase == RoomPhase.Setup);
-            selectCharacter.interactable = mapEditor.interactable = manageEnemies.interactable = model.CanEditRoom;
+            selectCharacter.interactable = mapEditor.interactable = model.CanEditRoom;
             ready.image.sprite = model.LocalReady ? readySprite : notReadySprite;
             status.text = model.Error ?? (model.Phase == RoomPhase.Starting
                 ? "Waiting for the initial match snapshot."

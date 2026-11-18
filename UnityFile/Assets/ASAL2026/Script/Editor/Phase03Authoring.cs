@@ -15,7 +15,6 @@ public static class Phase03Authoring
     private const string Root = "Assets/ASAL2026/Prefab/";
     private const string Maps = Root + "UI/MapEditor/MapEditor.prefab";
     private const string Lobby = Root + "UI/Lobby/Lobby.prefab";
-    private const string Room = Root + "UI/Lobby/RoomSetup.prefab";
     private const string Play = Root + "UI/Play/";
     private const string Records = Root + "UI/CharacterEditor/CharacterEditor.prefab";
     private static Button button;
@@ -35,7 +34,8 @@ public static class Phase03Authoring
         Directory.CreateDirectory(Path.GetDirectoryName(Records));
         AssetDatabase.Refresh();
 
-        var editor = AssetDatabase.LoadAssetAtPath<GameObject>(Records).GetComponent<CharacterEditorPanel>();
+        var picker = AssetDatabase.LoadAssetAtPath<GameObject>(Root + "UI/CharacterPicker/SelectCharacter.prefab")
+            .GetComponent<CharacterEditorPanel>();
         var play = BuildPlay();
         Modify(Root + "Manager/Manager.prefab", root =>
         {
@@ -47,18 +47,8 @@ public static class Phase03Authoring
         Modify(Root + "Manager/UIManager.prefab", root =>
         {
             var ui = root.GetComponent<ASAL.UIManager>();
-            Set(ui, "characterEditorPrefab", editor);
+            Set(ui, "characterPickerPrefab", picker);
             Set(ui, "playPrefab", play);
-        });
-        Modify(Room, root =>
-        {
-            var panel = root.GetComponent<RoomSetupPanel>();
-            if (Get<Button>(panel, "manageEnemies"))
-                return;
-            var control = Button(root.transform, "ManageEnemiesButton", "Enemy templates", -340, 45, 240, 58);
-            var rect = (RectTransform)control.transform;
-            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-            Set(panel, "manageEnemies", control);
         });
         Modify(Lobby, root =>
         {
@@ -68,15 +58,6 @@ public static class Phase03Authoring
             var title = Get<GameObject>(panel, "titleView");
             var control = Button(title.transform, "ManageCharactersButton", "Characters", 36, -142, 205, 62);
             Set(panel, "manageCharacters", control);
-        });
-        Modify(Maps, root =>
-        {
-            var panel = root.GetComponent<MapEditorPanel>();
-            if (Get<Button>(panel, "publish"))
-                return;
-            var control = Button(root.transform, "PublishButton", "Publish", 42, -175, 185, 56);
-            control.gameObject.SetActive(false);
-            Set(panel, "publish", control);
         });
         AssetDatabase.SaveAssets();
         Debug.Log("ASAL Phase 03 prefabs authored.");
