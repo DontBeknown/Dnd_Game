@@ -17,15 +17,18 @@ namespace ASAL
         [SerializeField] private Button start;
         [SerializeField] private Button ready;
         [SerializeField] private Button selectCharacter;
+        [SerializeField] private TMP_Text enemyTemplatesLabel;
         [SerializeField] private Button mapEditor;
         [SerializeField] private RectTransform content;
         [SerializeField] private RoomMemberRow rowPrefab;
 
         private readonly Dictionary<int, RoomMemberRow> rows = new();
+        private Color playerCharacterButtonColor;
 
         private void Awake()
         {
             var rooms = RoomManager.Instance;
+            playerCharacterButtonColor = selectCharacter.image.color;
             leave.onClick.AddListener(rooms.Leave);
             start.onClick.AddListener(rooms.StartMatch);
             ready.onClick.AddListener(() => rooms.SetReady(!rooms.LocalReady));
@@ -55,7 +58,11 @@ namespace ASAL
             ready.gameObject.SetActive(!model.IsDm && model.Phase == RoomPhase.Setup);
             ready.interactable = model.CanEditRoom && model.HasSelection;
             selectCharacter.gameObject.SetActive(model.Phase == RoomPhase.Setup);
-            selectCharacter.GetComponentInChildren<TMP_Text>(true).text = model.IsDm ? "Manage Enemies" : "Select Character";
+            enemyTemplatesLabel.gameObject.SetActive(model.IsDm);
+            var characterButtonColor = playerCharacterButtonColor;
+            if (model.IsDm)
+                characterButtonColor.a = 1f;
+            selectCharacter.image.color = characterButtonColor;
             mapEditor.gameObject.SetActive(model.IsDm && model.Phase == RoomPhase.Setup);
             selectCharacter.interactable = mapEditor.interactable = model.CanEditRoom;
             ready.image.sprite = model.LocalReady ? readySprite : notReadySprite;

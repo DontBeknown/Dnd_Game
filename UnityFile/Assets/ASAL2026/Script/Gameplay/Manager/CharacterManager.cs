@@ -16,7 +16,8 @@ namespace ASAL
         internal Race[] Races { get; private set; }
         internal CharacterClass[] Classes { get; private set; }
         internal AbilityScore[] Abilities { get; private set; }
-        private Character template;
+        private Character heroTemplate;
+        private Character enemyTemplate;
 
         internal void Register()
         {
@@ -36,7 +37,8 @@ namespace ASAL
             Races = Resources.LoadAll<Race>("Races").OrderBy(item => item.raceName).ToArray();
             Classes = Resources.LoadAll<CharacterClass>("Classes").OrderBy(item => item.className).ToArray();
             Abilities = Resources.LoadAll<AbilityScore>("AbilityScores").OrderBy(item => item.abilityName).ToArray();
-            template = Resources.Load<Character>("TemplateCharacter");
+            heroTemplate = Resources.Load<Character>("TemplateCharacter");
+            enemyTemplate = Resources.Load<Character>("TemplateEnemy");
         }
 
         internal Task<CharacterData[]> LoadAsync(AccountProfile account, bool enemy)
@@ -65,6 +67,53 @@ namespace ASAL
             return SaveManager.Instance.DeleteCharacterAsync(account.Uid, enemy, id);
         }
 
+        internal MatchCharacter Project(CharacterData record)
+        {
+            if (record == null)
+                return null;
+
+            var race = Array.Find(Races, item => item.raceName == record.raceName);
+            var characterClass = Array.Find(Classes, item => item.className == record.characterClassName);
+            var skills = CatalogSkills(race, characterClass);
+            var projection = new MatchCharacter
+            {
+                Name = record.characterName, Race = record.raceName, Class = record.characterClassName,
+                MaxHp = record.HP, Level = record.level,
+                Abilities = Abilities.Select(ability =>
+                {
+                    var score = record.abilityScorePoints?.Find(item => item?.abilityScoreName == ability.abilityName);
+                    return new MatchAbility { Name = ability.abilityName, Points = score?.abilityScorePoint ?? 10,
+                        Bonus = score?.ablityModifierBonus ?? 0 };
+                }).ToArray(),
+                Skills = record.skillData is { Count: > 0 }
+                    ? skills.Intersect(record.skillData.Select(item => item?.skillName)).ToArray() : skills
+            };
+            return ValidProjection(projection) ? projection : null;
+        }
+
+        internal bool ValidProjection(MatchCharacter character)
+        {
+            if (character == null || string.IsNullOrWhiteSpace(character.Name) || character.Name.Length > 64
+                || character.MaxHp < 1 || character.Level < 1 || character.Skills == null
+                || character.Abilities == null || character.Abilities.Length != Abilities.Length
+                || character.Abilities.Any(score => score == null || score.Points < 0
+                    || !Abilities.Any(ability => ability.abilityName == score.Name))
+                || character.Abilities.Select(score => score.Name).Distinct().Count() != Abilities.Length)
+                return false;
+
+            var race = Array.Find(Races, item => item.raceName == character.Race);
+            var characterClass = Array.Find(Classes, item => item.className == character.Class);
+            if (!race || !characterClass)
+                return false;
+            var availableSkills = CatalogSkills(race, characterClass);
+            return character.Skills.Length <= availableSkills.Length && character.Skills.All(availableSkills.Contains)
+                && character.Skills.Distinct().Count() == character.Skills.Length;
+        }
+
+        private static string[] CatalogSkills(Race race, CharacterClass characterClass) =>
+            (characterClass?.classSkills ?? new List<Skill>()).Concat(race?.raceSkills ?? new List<Skill>())
+                .Where(skill => skill).Select(skill => skill.skillName).Distinct().ToArray();
+
         internal CharacterData NewDraft() => new()
         {
             level = 1,
@@ -76,8 +125,9 @@ namespace ASAL
             skillData = new List<CharacterData.SkillData>()
         };
 
-        internal CharacterData NewRoomDraft()
+        internal CharacterData NewRoomDraft(bool enemy)
         {
+            var template = enemy ? enemyTemplate : heroTemplate;
             var draft = new CharacterData
             {
                 characterName = template.characterName,

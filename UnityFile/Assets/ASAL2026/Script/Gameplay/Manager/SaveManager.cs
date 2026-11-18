@@ -1,6 +1,8 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using Firebase;
 using Firebase.Database;
@@ -10,6 +12,8 @@ namespace ASAL
 {
     public sealed class SaveManager : MonoBehaviour
     {
+        private const string InventoryReceipts = "_asalInventoryOperations";
+
         public static SaveManager Instance { get; private set; }
 
         [SerializeField] private string databaseUrl;
@@ -137,6 +141,128 @@ namespace ASAL
 
         internal Task DeleteMapAsync(string uid, string id) =>
             Records("tilemap_data", uid).UpdateChildrenAsync(MapUpdate(id, null, null));
+
+        internal async Task<ItemData[]> LoadInventoryAsync(string uid)
+        {
+            var snapshot = await OwnerInventory(uid).GetValueAsync();
+            var items = new List<ItemData>();
+            foreach (var child in snapshot.Children)
+            {
+                if (!IsInventoryItemId(child.Key)
+                    || !TryReadInventoryInteger(child.Child("quantity").Value, out var quantity) || quantity <= 0)
+                    continue;
+
+                var item = new ItemData(child.Key, child.Child("itemName").Value as string ?? child.Key,
+                    child.Child("description").Value as string, quantity, child.Child("iconPath").Value as string,
+                    child.Child("type").Value as string);
+                items.Add(item);
+            }
+            return items.OrderBy(item => item.itemName, StringComparer.CurrentCulture)
+                .ThenBy(item => item.itemID, StringComparer.Ordinal).ToArray();
+        }
+
+        internal async Task<int?> ApplyInventoryChangeAsync(string uid, string matchId, string operationId,
+            ItemData item, int delta)
+        {
+            if (string.IsNullOrEmpty(matchId) || !Guid.TryParseExact(operationId, "N", out _)
+                || !IsInventoryItemId(item?.itemID) || delta == 0)
+                return null;
+
+            var snapshot = await OwnerInventory(uid).RunTransaction(inventory =>
+            {
+                if (!inventory.HasChildren && inventory.Value != null)
+                    return TransactionResult.Abort();
+
+                var receipts = inventory.Child(InventoryReceipts);
+                if ((!receipts.HasChildren && receipts.Value != null) || receipts.Child("itemID").Value != null)
+                    return TransactionResult.Abort();
+
+                var receipt = receipts.Child(operationId);
+                if (receipt.HasChildren || receipt.Value != null)
+                    return TransactionResult.Success(inventory);
+
+                var entry = inventory.Child(item.itemID);
+                bool exists = entry.HasChildren || entry.Value != null;
+                object current = exists ? entry.Child("quantity").Value : 0;
+                if (!TryChangeInventoryQuantity(current, delta, out var quantity))
+                    // A no-op lets Firebase retry against server data when the local cache is stale.
+                    return TransactionResult.Success(inventory);
+
+                if (quantity == 0)
+                    entry.Value = null;
+                else if (exists)
+                    entry.Child("quantity").Value = quantity;
+                else
+                    entry.Value = new Dictionary<string, object>
+                    {
+                        ["itemID"] = item.itemID, ["itemName"] = item.itemName,
+                        ["description"] = item.description ?? string.Empty, ["quantity"] = quantity,
+                        ["iconPath"] = item.iconPath ?? string.Empty, ["type"] = item.type
+                    };
+
+                receipt.Value = new Dictionary<string, object>
+                {
+                    ["matchId"] = matchId, ["itemId"] = item.itemID, ["delta"] = delta, ["quantity"] = quantity
+                };
+                return TransactionResult.Success(inventory);
+            }, fireLocalEvents: false);
+
+            var saved = snapshot?.Child(InventoryReceipts).Child(operationId).Value;
+            return TryReadInventoryReceipt(saved, matchId, item.itemID, delta, out var result) ? result : null;
+        }
+
+        internal static bool IsInventoryItemId(string id) => !string.IsNullOrWhiteSpace(id)
+            && id != InventoryReceipts && id.IndexOfAny(".#$[]/".ToCharArray()) < 0
+            && !id.Any(char.IsControl) && Encoding.UTF8.GetByteCount(id) <= 768;
+
+        private static bool TryChangeInventoryQuantity(object current, int delta, out int quantity)
+        {
+            quantity = 0;
+            if (delta == 0 || !TryReadInventoryInteger(current, out var saved) || saved < 0)
+                return false;
+            long updated = (long)saved + delta;
+            if (updated < 0 || updated > int.MaxValue)
+                return false;
+            quantity = (int)updated;
+            return true;
+        }
+
+        private static bool TryReadInventoryReceipt(object value, string match, string item, int delta, out int quantity)
+        {
+            quantity = 0;
+            if (value is not IDictionary receipt || !Equals(receipt["matchId"], match) || !Equals(receipt["itemId"], item)
+                || !TryReadInventoryInteger(receipt["delta"], out var savedDelta) || savedDelta != delta
+                || !TryReadInventoryInteger(receipt["quantity"], out var savedQuantity) || savedQuantity < 0)
+                return false;
+            quantity = savedQuantity;
+            return true;
+        }
+
+        private static bool TryReadInventoryInteger(object value, out int integer)
+        {
+            integer = 0;
+            switch (value)
+            {
+                case int number:
+                    integer = number;
+                    return true;
+                case long number when number >= int.MinValue && number <= int.MaxValue:
+                    integer = (int)number;
+                    return true;
+                case double number when number >= int.MinValue && number <= int.MaxValue && number == Math.Truncate(number):
+                    integer = (int)number;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private DatabaseReference OwnerInventory(string uid)
+        {
+            if (string.IsNullOrEmpty(uid) || AuthManager.Instance?.CurrentAccount?.Uid != uid)
+                throw new InvalidOperationException("Inventory requires the signed-in owner.");
+            return Records("inventory", uid);
+        }
 
         private static CharacterData ReadCharacter(string id, string json)
         {

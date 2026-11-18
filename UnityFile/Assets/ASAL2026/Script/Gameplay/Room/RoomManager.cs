@@ -23,6 +23,8 @@ namespace ASAL
         private bool confirmedOpenFlag;
         private bool confirmedVisibleFlag;
         private float deadline;
+        private string session;
+        private string dmUser;
 
         public static RoomManager Instance { get; private set; }
         public RoomPhase Phase { get; private set; }
@@ -32,7 +34,8 @@ namespace ASAL
         internal event Action<MatchSnapshot> MatchApplied;
         internal MatchSession Match => match;
         internal int LocalActor => photon.LocalActor;
-        internal string Session => photon.Session;
+        internal string Session => session;
+        internal int DmActor { get; private set; }
         internal string Error { get; private set; }
         internal bool Discovering => photon.Discovering;
         internal bool CanRetry => photon.CanRetry;
@@ -176,7 +179,7 @@ namespace ASAL
         }
 
         internal bool IsDmIdentity(int actor, string user) =>
-            RoomRules.IsDm(actor, user, photon.DmActor, photon.DmUser);
+            RoomRules.IsDm(actor, user, DmActor, dmUser);
 
         private void OnTransportChanged()
         {
@@ -192,12 +195,13 @@ namespace ASAL
         private void BindRoom()
         {
             room = photon.Current;
+            session = photon.Session;
             match = new MatchSession(photon, this);
             match.Applied += OnMatchApplied;
             photon.RoomChanged += OnRoomChanged;
             photon.KickReceived += OnKickReceived;
             Phase = RoomPhase.Setup;
-            waitingForDm = photon.CreatedRoom && photon.Session != null && photon.DmActor == 0;
+            waitingForDm = photon.CreatedRoom && session != null && photon.DmActor == 0;
             if (waitingForDm)
             {
                 deadline = Time.unscaledTime + 10f;
@@ -222,6 +226,10 @@ namespace ASAL
             }
             cancelStart = false;
             room = null;
+            session = null;
+            DmActor = 0;
+            dmUser = null;
+            InventoryManager.Instance?.ClearRoom();
             roster = Array.Empty<RoomMember>();
             selection = null;
             selectedReady = false;
@@ -238,12 +246,21 @@ namespace ASAL
                 return;
 
             roster = photon.ReadRoster();
+            if (DmActor == 0)
+            {
+                var master = roster.FirstOrDefault(player => player.Active && player.Actor == room.MasterClientId);
+                if (master != null && RoomRules.IsDm(master.Actor, master.UserId, photon.DmActor, photon.DmUser))
+                {
+                    DmActor = master.Actor;
+                    dmUser = master.UserId;
+                }
+            }
             if (waitingForDm && IsDm)
             {
                 waitingForDm = false;
                 RequestDiscovery(true);
             }
-            if (!waitingForDm && (photon.Session == null || !roster.Any(player =>
+            if (!waitingForDm && (session == null || session != photon.Session || !roster.Any(player =>
                 player.Active && IsDmIdentity(player.Actor, player.UserId))))
             {
                 AbortRoom("The DM left the room.");
@@ -253,7 +270,7 @@ namespace ASAL
             {
                 waitingForStart = false;
                 Phase = RoomPhase.Starting;
-                StartRequested?.Invoke(photon.Session);
+                StartRequested?.Invoke(session);
             }
             else if (Phase == RoomPhase.Starting && !photon.Started && photon.MatchRevision == 0)
             {
@@ -352,10 +369,10 @@ namespace ASAL
         }
 
         private bool RosterAllowsStart() =>
-            RoomRules.CanStart(photon.LocalActor, photon.LocalUser, photon.DmActor, photon.DmUser, roster);
+            RoomRules.CanStart(photon.LocalActor, photon.LocalUser, DmActor, dmUser, roster);
 
         private bool AllowsKick(int sender, string user, int target) =>
-            RoomRules.CanKick(sender, user, photon.DmActor, photon.DmUser, target,
+            RoomRules.CanKick(sender, user, DmActor, dmUser, target,
                 roster.Any(player => player.Active && player.Actor == target));
 
         private bool PublishSelection(SelectedCharacter value, bool ready)

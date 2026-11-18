@@ -104,7 +104,7 @@ namespace ASAL
             dirty = false;
             existingId = index == 0 ? null : entries[index - 1].firebaseKey;
             draft = index == 0
-                ? (layout.RequiresSavedRecord ? Characters.NewRoomDraft() : Characters.NewDraft())
+                ? (layout.RequiresSavedRecord ? Characters.NewRoomDraft(enemy) : Characters.NewDraft())
                 : Copy(entries[index - 1]);
             draft.firebaseKey = existingId;
             draft.abilityScorePoints ??= new List<CharacterData.AbilityScorePointsData>();
@@ -186,8 +186,10 @@ namespace ASAL
             RenderIndex(preferredId ?? existingId);
             if (preferredId != null || existingId != null && Records.value == 0)
                 LoadDraft(Records.value);
-            status.text = entries.Length == 0 ? "No saved records. Create a new one." : string.Empty;
-        });
+            status.text = entries.Length == 0
+                ? (enemy ? "No saved monster templates. Use Create Enemy to save one." : "No saved records. Create a new one.")
+                : string.Empty;
+        }, enemy ? "Could not load monster templates. Check database access or reopen to retry." : "Could not load saved characters. Reopen to retry.");
 
         internal void Save()
         {
@@ -272,7 +274,7 @@ namespace ASAL
             Records.RefreshShownValue();
         }
 
-        private async void Run(string message, Func<Task> operation)
+        private async void Run(string message, Func<Task> operation, string failureMessage = "Operation failed. Try again.")
         {
             if (busy || !Current)
                 return;
@@ -286,7 +288,7 @@ namespace ASAL
             catch (Exception error)
             {
                 if (Current)
-                    status.text = error is FormatException or InvalidOperationException ? error.Message : "Operation failed. Try again.";
+                    status.text = error is FormatException or InvalidOperationException ? error.Message : failureMessage;
             }
             finally
             {

@@ -34,6 +34,10 @@ namespace ASAL
                 var photon = RequireManager<PhotonManager>(managers);
                 var rooms = RequireManager<RoomManager>(managers);
                 var characters = RequireManager<CharacterManager>(managers);
+                var combat = RequireManager<CombatManager>(managers);
+                var dice = RequireManager<DiceManager>(managers);
+                var inventory = RequireManager<InventoryManager>(managers);
+                var chat = RequireManager<ChatManager>(managers);
                 var flow = RequireManager<GameFlowManager>(managers);
 
                 Register(input.Register, input.Unregister);
@@ -43,6 +47,10 @@ namespace ASAL
                 Register(photon.Register, photon.Unregister);
                 Register(rooms.Register, rooms.Unregister);
                 Register(characters.Register, characters.Unregister);
+                Register(combat.Register, combat.Unregister);
+                Register(dice.Register, dice.Unregister);
+                Register(inventory.Register, inventory.Unregister);
+                Register(chat.Register, chat.Unregister);
                 Register(flow.Register, flow.Unregister);
 
                 var shellView = UIShell.Resolve(shell);
@@ -53,6 +61,10 @@ namespace ASAL
                 cleanup.Push(photon.Shutdown);
                 Initialize(rooms.Initialize, rooms.Shutdown);
                 characters.Initialize();
+                Initialize(combat.Initialize, combat.Shutdown);
+                Initialize(dice.Initialize, dice.Shutdown);
+                Initialize(inventory.Initialize, inventory.Shutdown);
+                Initialize(chat.Initialize, chat.Shutdown);
                 managers.SetActive(true);
                 shell.SetActive(true);
                 Initialize(flow.Begin, flow.Shutdown);

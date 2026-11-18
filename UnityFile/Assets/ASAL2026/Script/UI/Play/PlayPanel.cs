@@ -22,6 +22,7 @@ namespace ASAL
         [SerializeField] private Button mapEditor;
         [SerializeField] private Button enemies;
         [SerializeField] private Button leave;
+        [SerializeField] private PlayHud hud;
 
         private readonly Dictionary<string, Tilemap> layers = new();
         private readonly List<MatchToken> choices = new();
@@ -32,6 +33,11 @@ namespace ASAL
         private AccountProfile account;
         private string matchId;
         private string templateError;
+        private string mapNotice;
+        private string notice;
+        private KeyValuePair<string, string>[] savedMaps = Array.Empty<KeyValuePair<string, string>>();
+        private int mapIndexRequest;
+        private bool publishingMap;
         private int templateRequest;
         private int mapRevision = -1;
 
@@ -45,12 +51,15 @@ namespace ASAL
             catalog = MapManager.LoadBuildables();
             mapEditor.onClick.AddListener(UIManager.Instance.OpenMapEditor);
             enemies.onClick.AddListener(() => UIManager.Instance.OpenRecordEditor(true, enemies));
-            leave.onClick.AddListener(rooms.Leave);
+            if (!hud)
+                leave.onClick.AddListener(rooms.Leave);
             tokenChoices.captionText.richText = tokenChoices.itemText.richText = false;
             status.richText = false;
             mapEditor.gameObject.SetActive(rooms.IsDm);
             enemies.gameObject.SetActive(rooms.IsDm);
+            hud?.Initialize(this, rooms);
             RefreshEnemies();
+            RefreshMaps();
         }
 
         internal void Apply(MatchSnapshot next)
@@ -64,10 +73,15 @@ namespace ASAL
             }
             CharacterManager.Instance.Reconcile(next, tokenPrefab, tokenRoot, grid);
             RenderChoices();
+            hud?.Apply(next);
             RefreshStatus();
         }
 
-        internal void FocusMapEditor() => mapEditor.Select();
+        internal void FocusMapEditor()
+        {
+            mapEditor.Select();
+            RefreshMaps();
+        }
 
         internal async void RefreshEnemies()
         {
@@ -82,6 +96,7 @@ namespace ASAL
                 templates = records;
                 templateError = null;
                 RenderChoices();
+                hud?.SetEnemies(records);
             }
             catch (Exception)
             {
@@ -96,16 +111,94 @@ namespace ASAL
         private bool IsCurrent(int request) => this && request == templateRequest && account != null
             && ReferenceEquals(account, AuthManager.Instance?.CurrentAccount) && matchId == room.Session;
 
+        private bool Current => this && account != null && ReferenceEquals(account, AuthManager.Instance?.CurrentAccount)
+            && room.IsDm && matchId == room.Session && room.Phase == RoomPhase.Playing;
+
+        private async void RefreshMaps()
+        {
+            if (!hud || !room.IsDm)
+                return;
+            var request = ++mapIndexRequest;
+            try
+            {
+                var maps = await SaveManager.Instance.LoadMapIndexAsync(account.Uid);
+                if (Current && request == mapIndexRequest)
+                {
+                    savedMaps = maps;
+                    hud.SetMaps(savedMaps.Select(entry => entry.Value), 0, publishingMap);
+                }
+            }
+            catch (Exception)
+            {
+                if (Current && request == mapIndexRequest)
+                {
+                    mapNotice = "Could not load saved maps. Open MapMaker to retry.";
+                    RefreshStatus();
+                }
+            }
+        }
+
+        internal async void LoadSavedMap(int selection)
+        {
+            if (!Current || publishingMap || selection < 0 || selection >= savedMaps.Length)
+                return;
+            var entry = savedMaps[selection];
+            publishingMap = true;
+            hud.SetMaps(savedMaps.Select(map => map.Value), selection, true);
+            mapNotice = "Loading " + entry.Value + "…";
+            RefreshStatus();
+            try
+            {
+                var map = await SaveManager.Instance.LoadMapAsync(account.Uid, entry.Key);
+                if (Current)
+                    await room.Match.PublishAsync(map);
+                if (Current)
+                    mapNotice = null;
+            }
+            catch (Exception error)
+            {
+                if (Current)
+                    mapNotice = error is FormatException ? error.Message : "Could not load the saved map.";
+            }
+            finally
+            {
+                publishingMap = false;
+                if (Current)
+                {
+                    hud.SetMaps(savedMaps.Select(map => map.Value), selection, false);
+                    RefreshStatus();
+                }
+            }
+        }
+
+        internal void SelectEnemy(string templateId)
+        {
+            var index = choices.FindIndex(token => token.Id == "template-" + templateId);
+            if (index >= 0)
+            {
+                tokenChoices.value = index;
+                tokenChoices.Select();
+            }
+        }
+
+        internal void ShowNotice(string message)
+        {
+            notice = message;
+            RefreshStatus();
+        }
+
         internal void RefreshStatus()
         {
             leave.interactable = room.CanLeave;
-            status.text = room.Error ?? templateError ?? (snapshot?.Map == null
+            hud?.RefreshRoom();
+            status.text = room.Error ?? notice ?? mapNotice ?? templateError ?? (snapshot?.Map == null
                 ? room.IsDm ? "Open MapMaker and load a saved map." : "Waiting for the DM to load a map."
-                : "Choose a token, then click a floor cell to place or move it. Use WASD to pan.");
+                : "Click a floor cell to place or move the selected token. Right-click a token for details.");
         }
 
         internal void Release()
         {
+            hud?.Release();
             account = null;
             CharacterManager.Instance.ClearViews();
         }
@@ -203,17 +296,41 @@ namespace ASAL
             if (snapshot == null || UIManager.Instance.IsScreenTransitioning || !room.CanLeave)
                 return;
             var input = InputManager.Instance;
+            if ((input.BoardCancel || input.BoardDismiss) && hud && hud.IsTargeting)
+            {
+                hud.CancelTarget();
+                return;
+            }
+            if (input.BoardDismiss && hud && hud.BlocksBoard)
+            {
+                hud.Dismiss();
+                return;
+            }
+            if (hud && hud.BlocksBoard)
+                return;
             playCamera.transform.position += (Vector3)(input.BoardPan * (playCamera.orthographicSize * Time.unscaledDeltaTime));
             if (EventSystem.current.IsPointerOverGameObject())
                 return;
 
             playCamera.orthographicSize = Mathf.Clamp(playCamera.orthographicSize - input.BoardZoom, 2f, 40f);
+            if (!input.BoardClick && !input.BoardCancel)
+                return;
+
+            var cell = grid.WorldToCell(playCamera.ScreenToWorldPoint(input.BoardPointer));
+            cell.z = 0;
+            if (hud && (hud.IsTargeting || input.BoardCancel))
+            {
+                var hit = Array.Find(snapshot.Tokens, item => item.Placed && item.Cell == cell);
+                if (hud.IsTargeting)
+                    hud.AcceptTarget(hit);
+                else
+                    hud.Inspect(hit);
+                return;
+            }
             if (!input.BoardClick || !tokenChoices.interactable)
                 return;
 
             var token = choices[tokenChoices.value];
-            var cell = grid.WorldToCell(playCamera.ScreenToWorldPoint(input.BoardPointer));
-            cell.z = 0;
             var command = new MatchCommand
             {
                 Action = token.Placed ? MatchAction.Move : MatchAction.Place,
@@ -225,7 +342,14 @@ namespace ASAL
             MatchToken enemy = null;
             if (token.OwnerActor == 0 && token.Id.StartsWith("template-", StringComparison.Ordinal))
             {
-                enemy = new MatchToken { Id = Guid.NewGuid().ToString("N"), RecordId = token.RecordId, Name = token.Name };
+                var template = templates.FirstOrDefault(record => record.firebaseKey == token.RecordId);
+                if (template == null)
+                    return;
+                enemy = new MatchToken
+                {
+                    Id = Guid.NewGuid().ToString("N"), RecordId = token.RecordId, Name = token.Name,
+                    Character = CharacterManager.Instance.Project(template)
+                };
                 command.TokenId = enemy.Id;
             }
             room.Match.Submit(command, enemy);

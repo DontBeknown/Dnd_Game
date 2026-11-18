@@ -21,9 +21,16 @@ namespace ASAL
         private readonly Dictionary<string, MatchSnapshot> staged = new();
         private readonly HashSet<string> commands = new();
         private readonly Dictionary<int, float> snapshotRequests = new();
+        private readonly Dictionary<int, (string RecordId, MatchCharacter Character)> characters = new();
         private Proposal pending;
         private float nextResync;
         private string lastResyncProposal;
+        private string localRecordId;
+        private MatchCharacter localCharacter;
+        private float nextProjection;
+        private bool projectionLoading;
+        private bool projectionSent;
+        private bool disposed;
 
         internal MatchSnapshot Committed { get; private set; }
         internal event Action<MatchSnapshot> Applied;
@@ -38,6 +45,7 @@ namespace ASAL
 
         internal void Dispose()
         {
+            disposed = true;
             photon.MatchReceived -= Receive;
             pending?.Completion.TrySetCanceled();
             pending = null;
@@ -45,6 +53,8 @@ namespace ASAL
             staged.Clear();
             commands.Clear();
             snapshotRequests.Clear();
+            characters.Clear();
+            localCharacter = null;
             Committed = null;
         }
 
@@ -54,7 +64,7 @@ namespace ASAL
                 return;
             var snapshot = new MatchSnapshot
             {
-                MatchId = photon.Session, Revision = 1, Map = map, MapRevision = map == null ? 0 : 1,
+                MatchId = room.Session, Revision = 1, Map = map, MapRevision = map == null ? 0 : 1,
                 Roster = room.Roster.Where(member => member.Active).Select(member => new MatchMember
                 {
                     Actor = member.Actor, Name = member.Name,
@@ -82,6 +92,7 @@ namespace ASAL
             next.Map = map;
             foreach (var token in next.Tokens)
                 token.Placed = token.Placed && MatchSnapshot.IsWalkable(map, token.Cell);
+            CombatManager.ReconcileMap(next);
             return Stage(next, null).Completion.Task;
         }
 
@@ -94,8 +105,8 @@ namespace ASAL
             command.CommandId = Guid.NewGuid().ToString("N");
             if (room.IsDm)
                 HandleCommand(photon.LocalActor, photon.LocalUser, command, enemy);
-            else if (!photon.SendMatch(new[] { photon.DmActor }, "command", photon.Session, JsonUtility.ToJson(command)))
-                room.SetMatchStatus("Could not send the token action. Try again.");
+            else if (!photon.SendMatch(new[] { room.DmActor }, "command", room.Session, JsonUtility.ToJson(command)))
+                room.SetMatchStatus("Could not send the match action. Try again.");
         }
 
         internal void Refresh()
@@ -130,7 +141,7 @@ namespace ASAL
             {
                 lastResyncProposal = proposal;
                 nextResync = Time.unscaledTime + ResyncInterval;
-                photon.SendMatch(new[] { photon.DmActor }, "snapshot", photon.Session);
+                photon.SendMatch(new[] { room.DmActor }, "snapshot", room.Session);
             }
         }
 
@@ -143,6 +154,7 @@ namespace ASAL
         internal void Tick()
         {
             Refresh();
+            ShareLocalCharacter();
             if (pending == null)
                 return;
             if (Time.unscaledTime >= pending.Expires)
@@ -153,6 +165,62 @@ namespace ASAL
                 var full = pending.Fallback;
                 pending.Fallback = null;
                 Send(Peers(), pending.Id, pending.Revision, "full", full);
+            }
+        }
+
+        private void ShareLocalCharacter()
+        {
+            if (!room.CanLeave || room.IsDm || !room.LocalReady || string.IsNullOrEmpty(room.SelectedCharacterId))
+                return;
+
+            if (room.Phase == RoomPhase.Setup)
+            {
+                localRecordId = null;
+                return;
+            }
+
+            if (localRecordId != room.SelectedCharacterId)
+            {
+                localRecordId = room.SelectedCharacterId;
+                localCharacter = null;
+                projectionSent = false;
+                nextProjection = 0;
+            }
+            if (projectionSent || projectionLoading || Time.unscaledTime < nextProjection)
+                return;
+            if (localCharacter == null)
+                LoadLocalCharacter(localRecordId, AuthManager.Instance.CurrentAccount);
+            else if (room.DmActor > 0)
+            {
+                projectionSent = photon.SendMatch(new[] { room.DmActor }, "character", room.Session,
+                    localRecordId, JsonUtility.ToJson(localCharacter));
+                nextProjection = Time.unscaledTime + ResyncInterval;
+            }
+        }
+
+        private async void LoadLocalCharacter(string recordId, AccountProfile account)
+        {
+            projectionLoading = true;
+            try
+            {
+                var records = await CharacterManager.Instance.LoadAsync(account, false);
+                if (!disposed && ReferenceEquals(account, AuthManager.Instance?.CurrentAccount) && recordId == localRecordId)
+                {
+                    localCharacter = CharacterManager.Instance.Project(Array.Find(records, record => record.firebaseKey == recordId));
+                    if (localCharacter == null)
+                        room.SetMatchStatus("The selected character has invalid or missing gameplay data. Select a saved character again.");
+                }
+            }
+            catch (Exception)
+            {
+                if (!disposed && ReferenceEquals(account, AuthManager.Instance?.CurrentAccount) && recordId == localRecordId)
+                    room.SetMatchStatus("Could not load the selected character for play. Retrying.");
+            }
+            finally
+            {
+                projectionLoading = false;
+                if (recordId == localRecordId && localCharacter == null)
+                    nextProjection = Time.unscaledTime + ResyncInterval;
             }
         }
 
@@ -209,7 +277,7 @@ namespace ASAL
         private void Receive(int actor, string user, object[] data)
         {
             if (!room.CanLeave || data.Length < 2 || data[0] is not string kind || data[1] is not string session
-                || session != photon.Session)
+                || session != room.Session)
                 return;
 
             try
@@ -233,8 +301,12 @@ namespace ASAL
                     case "command" when room.IsDm && data.Length == 3 && data[2] is string json && json.Length <= 2048:
                         HandleCommand(actor, user, JsonUtility.FromJson<MatchCommand>(json), null);
                         break;
+                    case "character" when room.IsDm && data.Length == 4
+                        && data[2] is string recordId && data[3] is string body && body.Length <= 2048:
+                        ReceiveCharacter(actor, user, recordId, JsonUtility.FromJson<MatchCharacter>(body));
+                        break;
                     case "rejected" when room.IsDmIdentity(actor, user):
-                        room.SetMatchStatus("Token action rejected. Check the destination or try again.");
+                        room.SetMatchStatus("Match action rejected. Check the current turn, target, or destination.");
                         break;
                 }
             }
@@ -244,43 +316,99 @@ namespace ASAL
             }
         }
 
+        private void ReceiveCharacter(int actor, string user, string recordId, MatchCharacter character)
+        {
+            if (!room.Roster.Any(member => member.Active && member.Ready && member.Actor == actor && member.UserId == user
+                    && member.CharacterId == recordId && member.CharacterName == character?.Name)
+                || !CharacterManager.Instance.ValidProjection(character))
+                return;
+            if (Committed == null || !Committed.Tokens.Any(token => token.OwnerActor == actor && token.RecordId == recordId))
+                characters[actor] = (recordId, character);
+        }
+
         private void HandleCommand(int actor, string user, MatchCommand command, MatchToken enemy)
         {
             bool dm = room.IsDmIdentity(actor, user);
             if (Committed == null || pending != null || photon.MatchRevision != Committed.Revision
                 || !room.Roster.Any(member => member.Active && member.Actor == actor && member.UserId == user)
-                || command == null || commands.Contains(command.CommandId))
+                || command == null || command.MatchId != Committed.MatchId || command.ExpectedRevision != Committed.Revision
+                || !Guid.TryParseExact(command.CommandId, "N", out _) || commands.Contains(command.CommandId))
             {
                 Reject(actor);
                 return;
             }
 
-            if (!Committed.TryApply(command, actor, dm, out var token))
+            MatchLogEntry privateReport = null;
+            MatchDelta delta;
+            if (command.Action is MatchAction.Place or MatchAction.Move)
             {
-                if (!dm || actor != photon.LocalActor || enemy == null || command.Action != MatchAction.Place
-                    || command.TokenId != enemy.Id || command.RecordId != enemy.RecordId
-                    || command.MatchId != Committed.MatchId || command.ExpectedRevision != Committed.Revision
-                    || !Guid.TryParseExact(command.CommandId, "N", out _)
-                    || !Guid.TryParseExact(enemy.Id, "N", out _) || Committed.Tokens.Any(item => item.Id == enemy.Id)
-                    || !MatchSnapshot.IsWalkable(Committed.Map, command.Cell))
+                if (!TryPlaceOrMove(actor, dm, command, enemy, out delta))
                 {
                     Reject(actor);
                     return;
                 }
+            }
+            else if (!CombatManager.Instance.TryResolve(Committed, command, actor, dm, out delta, out privateReport))
+            {
+                Reject(actor);
+                return;
+            }
+
+            commands.Add(command.CommandId);
+            try
+            {
+                var proposal = Stage(delta.Apply(Committed), delta);
+                if (privateReport != null)
+                    ReportPrivateAfterCommit(proposal.Completion.Task, privateReport);
+            }
+            catch (FormatException error) { room.SetMatchStatus(error.Message); }
+        }
+
+        private bool TryPlaceOrMove(int actor, bool dm, MatchCommand command, MatchToken enemy, out MatchDelta delta)
+        {
+            delta = null;
+            if (!Committed.TryApply(command, actor, dm, out var token))
+            {
+                if (!dm || actor != photon.LocalActor || enemy == null || command.Action != MatchAction.Place
+                    || command.TokenId != enemy.Id || command.RecordId != enemy.RecordId || enemy.OwnerActor != 0
+                    || !Guid.TryParseExact(enemy.Id, "N", out _) || Committed.Tokens.Any(item => item.Id == enemy.Id)
+                    || !Committed.IsAvailableCell(command.Cell)
+                    || !CharacterManager.Instance.ValidProjection(enemy.Character))
+                    return false;
                 token = enemy.At(command.Cell);
             }
-            commands.Add(command.CommandId);
-            var delta = new MatchDelta { MatchId = Committed.MatchId, Revision = Committed.Revision + 1, Token = token };
-            try { Stage(delta.Apply(Committed), delta); }
-            catch (FormatException error) { room.SetMatchStatus(error.Message); }
+            if (token.Character == null)
+            {
+                if (!characters.TryGetValue(token.OwnerActor, out var saved) || saved.RecordId != token.RecordId)
+                    return false;
+                token.Character = saved.Character;
+            }
+            if (!Committed.Tokens.Any(item => item.Id == token.Id))
+                token.Hp = token.Character.MaxHp;
+            delta = new MatchDelta { MatchId = Committed.MatchId, Revision = Committed.Revision + 1, Token = token };
+            return CombatManager.TryMove(Committed, command, delta, actor, dm);
+        }
+
+        private async void ReportPrivateAfterCommit(Task<bool> completion, MatchLogEntry report)
+        {
+            try
+            {
+                await completion;
+                if (!disposed && room.IsDm && room.CanLeave)
+                    DiceManager.Instance?.ReportPrivate(report.Text, report.Roll);
+            }
+            catch (Exception error) when (error is OperationCanceledException or FormatException)
+            {
+                // Rejected or expired proposals produced no visible outcome.
+            }
         }
 
         private void Reject(int actor)
         {
             if (actor == photon.LocalActor)
-                room.SetMatchStatus("Token action rejected. Check the destination or try again.");
+                room.SetMatchStatus("Match action rejected. Check the current turn, target, or destination.");
             else
-                photon.SendMatch(new[] { actor }, "rejected", photon.Session);
+                photon.SendMatch(new[] { actor }, "rejected", room.Session);
         }
 
         private static byte[] Pack(string json)
@@ -300,7 +428,7 @@ namespace ASAL
             for (int index = 0; index < count; index++)
             {
                 var chunk = bytes.AsSpan(index * ChunkBytes, Math.Min(ChunkBytes, bytes.Length - index * ChunkBytes)).ToArray();
-                if (!photon.SendMatch(peers, "chunk", photon.Session, id, revision, form, index, count, chunk))
+                if (!photon.SendMatch(peers, "chunk", room.Session, id, revision, form, index, count, chunk))
                     return false;
             }
             return true;
@@ -333,22 +461,24 @@ namespace ASAL
             if (form == "delta")
             {
                 var delta = JsonUtility.FromJson<MatchDelta>(json);
-                if (Committed == null || delta?.Token == null || revision != Committed.Revision + 1
-                    || delta.MatchId != photon.Session || delta.Revision != revision)
+                if (Committed == null || delta == null || revision != Committed.Revision + 1
+                    || delta.MatchId != room.Session || delta.Revision != revision
+                    || delta.ChangedTokens?.Any(change => change == null || !Committed.Tokens.Any(token => token.Id == change.Id)) == true)
                     return;
                 snapshot = delta.Apply(Committed);
             }
             else
                 snapshot = JsonUtility.FromJson<MatchSnapshot>(json);
 
-            if (snapshot?.Revision != revision || snapshot.MatchId != photon.Session)
+            if (snapshot?.Revision != revision || snapshot.MatchId != room.Session)
                 return;
+            snapshot.NormalizeOptional();
             Validate(snapshot);
             if (staged.Count >= 4)
                 staged.Clear();
             staged[id] = snapshot;
             if (revision > photon.MatchRevision)
-                photon.SendMatch(new[] { photon.DmActor }, "ack", photon.Session, id, revision);
+                photon.SendMatch(new[] { room.DmActor }, "ack", room.Session, id, revision);
             Refresh();
         }
 
@@ -358,7 +488,8 @@ namespace ASAL
                 || snapshot.MapRevision > snapshot.Revision
                 || snapshot.Roster.Length > 5 || snapshot.Roster.Any(member => member == null || member.Actor < 1)
                 || snapshot.Roster.Select(member => member.Actor).Distinct().Count() != snapshot.Roster.Length
-                || snapshot.Tokens.Any(token => token == null || string.IsNullOrEmpty(token.Id))
+                || snapshot.Tokens.Any(token => token == null || string.IsNullOrEmpty(token.Id)
+                    || !CharacterManager.Instance.ValidProjection(token.Character) || token.Hp < 0 || token.Hp > token.Character.MaxHp)
                 || snapshot.Tokens.Select(token => token.Id).Distinct().Count() != snapshot.Tokens.Length)
                 throw new FormatException("Invalid match snapshot.");
 
@@ -375,7 +506,37 @@ namespace ASAL
 
             if (snapshot.Tokens.Any(token => token.Placed && !MatchSnapshot.IsWalkable(snapshot.Map, token.Cell)))
                 throw new FormatException("A token is outside the playable map.");
+            if (snapshot.Tokens.Where(token => token.Placed).GroupBy(token => token.Cell).Any(cell => cell.Count() > 1))
+                throw new FormatException("Two tokens occupy the same cell.");
+            ValidateCombat(snapshot);
         }
+
+        private static void ValidateCombat(MatchSnapshot snapshot)
+        {
+            var log = snapshot.PublicLog ?? Array.Empty<MatchLogEntry>();
+            if (log.Length > 40 || log.Any(entry => entry == null || !Guid.TryParseExact(entry.Id, "N", out _)
+                    || string.IsNullOrEmpty(entry.Text) || !ValidRoll(entry.Roll, entry.Id))
+                || log.Select(entry => entry.Id).Distinct().Count() != log.Length)
+                throw new FormatException("Invalid match log.");
+
+            var encounter = snapshot.Encounter;
+            if (encounter == null)
+                return;
+            if (encounter.Round < 1 || encounter.TurnOrder == null
+                || encounter.TurnOrder.Any(entry => entry == null || !snapshot.Tokens.Any(token => token.Id == entry.TokenId
+                        && token.Placed && token.Hp == entry.Hp) || entry.Initiative is < 1 or > 20
+                    || entry.ActionsLeft is < 0 or > 1 || entry.MoveLeft is < 0 or > 7 || entry.Statuses == null
+                    || entry.Statuses.Any(status => status == null || string.IsNullOrEmpty(status.Name))
+                    || entry.MultiShotTargets == null || entry.MultiShotTargets.Length > 3)
+                || encounter.TurnOrder.Select(entry => entry.TokenId).Distinct().Count() != encounter.TurnOrder.Length
+                || !string.IsNullOrEmpty(encounter.ActiveTokenId) && encounter.Find(encounter.ActiveTokenId)?.Hp is not > 0)
+                throw new FormatException("Invalid encounter state.");
+        }
+
+        private static bool ValidRoll(MatchRoll roll, string id) => roll == null || roll.Id == id
+            && roll.Sides is { Length: > 0 } && roll.Faces != null && roll.Sides.Length == roll.Faces.Length
+            && roll.Sides.Zip(roll.Faces, (sides, face) => sides <= 20 && face >= 1 && face <= sides).All(valid => valid)
+            && roll.Faces.Sum() == roll.Total;
 
         private sealed class Proposal
         {
