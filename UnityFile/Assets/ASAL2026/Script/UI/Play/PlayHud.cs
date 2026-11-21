@@ -76,7 +76,7 @@ namespace ASAL
         }
 
         internal void SetMaps(IEnumerable<string> names, int selection, bool busy) => maps.SetMaps(names, selection, busy);
-        internal void SetEnemies(IEnumerable<CharacterData> templates) => maps.SetEnemies(templates);
+        internal void SetEnemies(IEnumerable<CharacterDraft> templates) => maps.SetEnemies(templates);
         internal bool Inspect(MatchToken token) => characters.Inspect(token);
         internal void AcceptTarget(MatchToken target) => characters.AcceptTarget(target);
         internal void CancelTarget() => characters.CancelTarget();

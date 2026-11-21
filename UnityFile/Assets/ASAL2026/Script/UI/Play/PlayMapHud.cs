@@ -40,15 +40,15 @@ namespace ASAL
             loadMap.interactable = mapChoice.interactable;
         }
 
-        internal void SetEnemies(IEnumerable<CharacterData> templates)
+        internal void SetEnemies(IEnumerable<CharacterDraft> templates)
         {
             ClearRows(enemyRow);
             foreach (var template in templates)
             {
                 var row = AddRow(enemyRow);
-                SetText(Text(row, "EnemyNameText"), template.characterName);
-                SetText(Text(row, "EnemyLevelText"), "Level " + template.level);
-                SetText(Text(row, "EnemyHP"), "HP " + template.HP);
+                SetText(Text(row, "EnemyNameText"), template.Name);
+                SetText(Text(row, "EnemyLevelText"), "Level " + template.Level);
+                SetText(Text(row, "EnemyHP"), "HP " + template.Hp);
                 row.GetComponentInChildren<Button>(true).onClick.AddListener(() =>
                 {
                     hud.CloseModal();

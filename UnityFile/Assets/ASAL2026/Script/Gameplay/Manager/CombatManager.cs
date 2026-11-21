@@ -6,7 +6,7 @@ namespace ASAL
 {
     public sealed class CombatManager : MonoBehaviour
     {
-        private Skill[] skills;
+        private RulesCatalog rules;
         public static CombatManager Instance { get; private set; }
 
         internal void Register()
@@ -22,12 +22,10 @@ namespace ASAL
                 Instance = null;
         }
 
-        internal void Initialize() => skills = Resources.LoadAll<Skill>("Skills");
-        internal void Shutdown() => skills = null;
+        internal void Initialize(RulesCatalog catalog) => rules = catalog;
+        internal void Shutdown() => rules = null;
 
-        internal Skill Skill(string name) => Array.Find(skills, skill => skill.skillName == name);
-        internal bool NeedsTarget(string name) => Skill(name)?.skillType == SkillType.Damage
-            && name is not ("Rage" or "Circle slash");
+        internal SkillDefinition Skill(SkillId id) => rules.Skill(id);
 
         internal bool CanAct(MatchToken token)
         {
@@ -35,22 +33,24 @@ namespace ASAL
             return room?.CanLeave == true && CombatRules.CanAct(room.Match?.Committed?.Encounter, token, room.LocalActor, room.IsDm);
         }
 
-        internal bool CanUseSkill(MatchToken token, string name) => CanAct(token)
-            && CombatSkills.HasAction(RoomManager.Instance.Match.Committed.Encounter.Find(token.Id), name);
+        internal bool CanUseSkill(MatchToken token, SkillDefinition skill) => CanAct(token)
+            && skill != null && token.Character.SkillIds.Contains(skill.Id.Value)
+            && CombatSkills.HasAction(RoomManager.Instance.Match.Committed.Encounter.Find(token.Id), skill);
 
         internal void ToggleEncounter() => Submit(MatchAction.ToggleEncounter);
         internal void EndTurn(string tokenId) => Submit(MatchAction.EndTurn, tokenId);
-        internal void UseSkill(string tokenId, string targetId, string skillName) => Submit(MatchAction.UseSkill, tokenId, targetId, skillName);
+        internal void UseSkill(string tokenId, string targetId, SkillId skill) =>
+            Submit(MatchAction.UseSkill, tokenId, targetId, skill.Value);
         internal void ChangeHp(string tokenId, int amount) => Submit(MatchAction.ChangeHp, tokenId, amount: amount);
         internal void RemoveToken(string tokenId) => Submit(MatchAction.RemoveToken, tokenId);
-        internal void RollAbility(string tokenId, string ability)
+        internal void RollAbility(string tokenId, AbilityId ability)
         {
             var room = RoomManager.Instance;
             if (room?.Match?.Committed is not { } snapshot || !room.CanLeave)
                 return;
             if (!room.IsDm)
             {
-                Submit(MatchAction.RollAbility, tokenId, ability: ability);
+                Submit(MatchAction.RollAbility, tokenId, ability: ability.Value);
                 return;
             }
             var token = Array.Find(snapshot.Tokens, candidate => candidate.Id == tokenId && candidate.Placed);
@@ -62,7 +62,7 @@ namespace ASAL
         private static void Submit(MatchAction action, string tokenId = null, string targetId = null, string skill = null,
             int amount = 0, string ability = null) => RoomManager.Instance?.Match?.Submit(new MatchCommand
         {
-            Action = action, TokenId = tokenId, TargetId = targetId, Skill = skill, Amount = amount, Ability = ability
+            Action = action, TokenId = tokenId, TargetId = targetId, SkillId = skill, Amount = amount, AbilityId = ability
         });
 
         internal bool TryResolve(MatchSnapshot current, MatchCommand command, int actor, bool dm, out MatchDelta delta,
@@ -93,7 +93,7 @@ namespace ASAL
             {
                 if (dm || token.OwnerActor != actor)
                     return false;
-                delta.Log = AbilityRoll(current, token, command.Ability, command.CommandId);
+                delta.Log = AbilityRoll(current, token, new AbilityId(command.AbilityId), command.CommandId);
                 return delta.Log != null;
             }
 
@@ -105,17 +105,18 @@ namespace ASAL
                 if (!dm && !controlsTurn)
                     return false;
                 var encounter = CopyEncounter(current, delta);
-                CombatRules.Advance(encounter, current.Tokens);
+                CombatRules.Advance(rules, encounter, current.Tokens);
                 delta.Log = Entry(command, $"{token.Name} ended their turn.");
                 return true;
             }
             if (command.Action != MatchAction.UseSkill || !controlsTurn
-                || !token.Character.Skills.Contains(command.Skill) || Skill(command.Skill) is not { } skill)
+                || Skill(new SkillId(command.SkillId)) is not { } skill
+                || !token.Character.SkillIds.Contains(command.SkillId))
                 return false;
 
             var next = CopyEncounter(current, delta);
             var combatant = next.Find(token.Id);
-            if (!CombatSkills.TryUse(current.Tokens, next, token, combatant, command, skill, Skill("Focus"), DiceManager.RollFace,
+            if (!CombatSkills.TryUse(rules, current.Tokens, next, token, combatant, command, skill, DiceManager.RollFace,
                 out var summary, out var report, out var rollResult))
                 return false;
             SyncHealth(current, delta);
@@ -129,7 +130,7 @@ namespace ASAL
             return true;
         }
 
-        internal static void ResolvePlacement(MatchSnapshot current, MatchCommand command, MatchDelta delta)
+        internal void ResolvePlacement(MatchSnapshot current, MatchCommand command, MatchDelta delta)
         {
             if (current.Encounter == null)
                 return;
@@ -143,7 +144,7 @@ namespace ASAL
             delta.Log = Entry(command, $"{added.Name} joined combat with initiative {initiative}.",
                 DiceManager.MakeRoll(command.CommandId, new[] { 20 }, new[] { initiative }));
             if (encounter.ActiveTokenId == null)
-                CombatRules.Advance(encounter, current.Tokens.Where(candidate => candidate.Id != added.Id).Append(added).ToArray());
+                CombatRules.Advance(rules, encounter, current.Tokens.Where(candidate => candidate.Id != added.Id).Append(added).ToArray());
         }
 
         private static CombatEncounter CopyEncounter(MatchSnapshot current, MatchDelta delta)
@@ -153,7 +154,7 @@ namespace ASAL
             return delta.Encounter;
         }
 
-        private static bool Toggle(MatchSnapshot current, MatchCommand command, MatchDelta delta)
+        private bool Toggle(MatchSnapshot current, MatchCommand command, MatchDelta delta)
         {
             delta.EncounterChanged = true;
             if (current.Encounter != null)
@@ -161,7 +162,7 @@ namespace ASAL
                 delta.Log = Entry(command, "Combat ended.");
                 return true;
             }
-            delta.Encounter = CombatRules.StartEncounter(current.Tokens, DiceManager.RollFace);
+            delta.Encounter = CombatRules.StartEncounter(rules, current.Tokens, DiceManager.RollFace);
             if (delta.Encounter == null)
                 return false;
             var order = delta.Encounter.TurnOrder;
@@ -171,7 +172,7 @@ namespace ASAL
             return true;
         }
 
-        private static bool ChangeHealth(MatchSnapshot current, MatchCommand command, MatchDelta delta, MatchToken token)
+        private bool ChangeHealth(MatchSnapshot current, MatchCommand command, MatchDelta delta, MatchToken token)
         {
             var amount = command.Amount;
             var hp = CombatRules.ClampHp(token.Hp, amount, token.Character.MaxHp);
@@ -186,13 +187,13 @@ namespace ASAL
             {
                 combatant.Hp = hp;
                 if (hp == 0 && encounter.ActiveTokenId == token.Id || hp > 0 && encounter.ActiveTokenId == null)
-                    CombatRules.Advance(encounter, current.Tokens);
+                    CombatRules.Advance(rules, encounter, current.Tokens);
             }
             delta.Log = Entry(command, $"{token.Name} now has {hp}/{token.Character.MaxHp} HP.");
             return true;
         }
 
-        private static bool Remove(MatchSnapshot current, MatchCommand command, MatchDelta delta, MatchToken token)
+        private bool Remove(MatchSnapshot current, MatchCommand command, MatchDelta delta, MatchToken token)
         {
             delta.RemovedTokenId = token.Id;
             var encounter = CopyEncounter(current, delta);
@@ -200,23 +201,23 @@ namespace ASAL
             {
                 var remaining = current.Tokens.Where(item => item.Id != token.Id).ToArray();
                 if (encounter.ActiveTokenId == token.Id)
-                    CombatRules.Advance(encounter, remaining);
+                    CombatRules.Advance(rules, encounter, remaining);
                 encounter.TurnOrder = encounter.TurnOrder.Where(item => item.TokenId != token.Id).ToArray();
-                foreach (var entry in encounter.TurnOrder)
-                    entry.Statuses = entry.Statuses.Where(status => status.SourceId != token.Id || status.Name != "Roar").ToArray();
+                CombatRules.RemoveSourceStatuses(rules, encounter, token.Id);
             }
             delta.Log = Entry(command, $"{token.Name} was removed from the board.");
             return true;
         }
 
-        private static MatchLogEntry AbilityRoll(MatchSnapshot current, MatchToken token, string ability, string id)
+        private MatchLogEntry AbilityRoll(MatchSnapshot current, MatchToken token, AbilityId ability, string id)
         {
-            if (token?.Character?.Abilities.Any(score => score.Name == ability) != true)
+            var definition = rules.Ability(ability);
+            if (definition == null || token?.Character?.Abilities.Any(score => score.AbilityId == ability.Value) != true)
                 return null;
             var roll = DiceManager.Resolve(id, new[] { 20 });
-            var modifier = CombatRules.Modifier(token.Character, current.Encounter?.Find(token.Id), ability);
+            var modifier = CombatRules.Modifier(rules, token.Character, current.Encounter?.Find(token.Id), ability);
             return new MatchLogEntry { Id = id, Roll = roll,
-                Text = $"{token.Name} rolled {roll.Total + (long)modifier} for {ability} ({roll.Total} {modifier:+#;-#;+0})." };
+                Text = $"{token.Name} rolled {roll.Total + (long)modifier} for {definition.Label} ({roll.Total} {modifier:+#;-#;+0})." };
         }
 
         private static void SyncHealth(MatchSnapshot current, MatchDelta delta)

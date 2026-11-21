@@ -70,8 +70,8 @@ namespace ASAL
         public string RecordId;
         public Vector2 Position;
         public string TargetId;
-        public string Skill;
-        public string Ability;
+        public string SkillId;
+        public string AbilityId;
         public int Amount;
         public int[] Dice;
     }

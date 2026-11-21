@@ -14,6 +14,13 @@ namespace ASAL.Tests
             Type.GetType("ASAL.SaveManager, Assembly-CSharp", true)
                 .GetMethod(method, BindingFlags.Static | BindingFlags.NonPublic);
 
+        private static object LoadRules() =>
+            Type.GetType("ASAL.RulesCatalog, Assembly-CSharp", true)
+                .GetMethod("Load", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null);
+
+        private static PropertyInfo DraftProperty(object draft, string name) =>
+            draft.GetType().GetProperty(name, BindingFlags.Instance | BindingFlags.NonPublic);
+
         [Test]
         public void CharacterPickerBindsBothRolesAndSharedControls()
         {
@@ -57,7 +64,7 @@ namespace ASAL.Tests
             var abilities = new[] { "Con", "Dex", "Int", "Str" };
             foreach (var (field, prefix, suffix) in new[]
             {
-                ("scoreValues", "Text", "Point"), ("modifierValues", "Text", "Mod"),
+                ("abilityLabels", "Text", ""), ("scoreValues", "Text", "Point"), ("modifierValues", "Text", "Mod"),
                 ("increaseScores", "Increase", "Button"), ("decreaseScores", "Decrease", "Button")
             })
             {
@@ -85,7 +92,7 @@ namespace ASAL.Tests
             managerType.GetMethod("Register", members).Invoke(manager, null);
             try
             {
-                managerType.GetMethod("Initialize", members).Invoke(manager, null);
+                managerType.GetMethod("Initialize", members).Invoke(manager, new[] { LoadRules() });
                 var panelType = Type.GetType("ASAL.CharacterEditorPanel, Assembly-CSharp", true);
                 var panel = instance.GetComponent(panelType);
                 var bindings = new SerializedObject(panel);
@@ -146,9 +153,9 @@ namespace ASAL.Tests
             const BindingFlags methods = BindingFlags.Static | BindingFlags.NonPublic;
             var draft = Find("ReadCharacter").Invoke(null, new object[]
             {
-                "record", @"{""characterName"":""Aria"",""level"":2,""abilityPoint"":1,""abilityScorePoints"":[{""abilityScoreName"":""Constitution"",""abilityScorePoint"":11,""ablityModifierBonus"":1}]}"
+                "record", @"{""characterName"":""Aria"",""raceName"":""Human"",""characterClassName"":""Warrior"",""level"":2,""abilityPoint"":1,""abilityScorePoints"":[{""abilityScoreName"":""Constitution"",""abilityScorePoint"":11,""ablityModifierBonus"":1}]}", LoadRules()
             });
-            var score = ((IList)draft.GetType().GetField("abilityScorePoints").GetValue(draft))[0];
+            var score = ((IList)DraftProperty(draft, "AbilityScores").GetValue(draft))[0];
             var adjust = manager.GetMethod("TryAdjustAbility", methods);
             var modifier = manager.GetMethod("AbilityModifier", methods);
             var hp = manager.GetMethod("CalculateHp", methods);
@@ -157,7 +164,7 @@ namespace ASAL.Tests
             Assert.That(modifier.Invoke(null, new[] { score }), Is.EqualTo(2));
             Assert.That(hp.Invoke(null, new[] { draft, (object)8 }), Is.EqualTo(20));
             Assert.That(adjust.Invoke(null, new[] { draft, score, (object)(-1) }), Is.True);
-            Assert.That(draft.GetType().GetField("abilityPoint").GetValue(draft), Is.EqualTo(1));
+            Assert.That(DraftProperty(draft, "AbilityPoints").GetValue(draft), Is.EqualTo(1));
             Assert.That(modifier.Invoke(null, new[] { score }), Is.EqualTo(1));
             Assert.That(hp.Invoke(null, new[] { draft, (object)8 }), Is.EqualTo(18));
         }
@@ -172,22 +179,21 @@ namespace ASAL.Tests
             try
             {
                 var manager = root.AddComponent(managerType);
-                managerType.GetMethod("Initialize", methods).Invoke(manager, null);
+                managerType.GetMethod("Initialize", methods).Invoke(manager, new[] { LoadRules() });
                 var newDraft = managerType.GetMethod("NewRoomDraft", methods);
                 var first = newDraft.Invoke(manager, new object[] { enemy });
-                var recordType = first.GetType();
-                var abilityPoints = recordType.GetField("abilityPoint");
-                Assert.That(recordType.GetField("characterName").GetValue(first), Is.EqualTo(expectedName));
+                var abilityPoints = DraftProperty(first, "AbilityPoints");
+                Assert.That(DraftProperty(first, "Name").GetValue(first), Is.EqualTo(expectedName));
                 Assert.That(abilityPoints.GetValue(first), Is.EqualTo(20));
-                Assert.That(recordType.GetField("level").GetValue(first), Is.EqualTo(10));
-                Assert.That(recordType.GetField("HP").GetValue(first), Is.GreaterThan(0));
-                Assert.That(recordType.GetProperty("firebaseKey").GetValue(first), Is.Null);
+                Assert.That(DraftProperty(first, "Level").GetValue(first), Is.EqualTo(10));
+                Assert.That(DraftProperty(first, "Hp").GetValue(first), Is.GreaterThan(0));
+                Assert.That(DraftProperty(first, "RecordId").GetValue(first), Is.Null);
 
-                var abilityScores = recordType.GetField("abilityScorePoints");
+                var abilityScores = DraftProperty(first, "AbilityScores");
                 ((IList)abilityScores.GetValue(first)).Clear();
                 abilityPoints.SetValue(first, 0);
                 var reset = newDraft.Invoke(manager, new object[] { enemy });
-                Assert.That(recordType.GetField("characterName").GetValue(reset), Is.EqualTo(expectedName));
+                Assert.That(DraftProperty(reset, "Name").GetValue(reset), Is.EqualTo(expectedName));
                 Assert.That(abilityPoints.GetValue(reset), Is.EqualTo(20));
                 Assert.That(((IList)abilityScores.GetValue(reset)).Count, Is.EqualTo(4));
             }
@@ -203,27 +209,194 @@ namespace ASAL.Tests
             var convert = Find("ReadCharacter");
             Assert.That(convert, Is.Not.Null);
             const string json = "{\"characterName\":\"Aria\"}";
-            var first = convert.Invoke(null, new object[] { "first", json });
-            var second = convert.Invoke(null, new object[] { "second", json });
-            var id = first.GetType().GetProperty("firebaseKey");
+            var catalog = LoadRules();
+            var first = convert.Invoke(null, new[] { "first", json, catalog });
+            var second = convert.Invoke(null, new[] { "second", json, catalog });
+            var id = DraftProperty(first, "RecordId");
             Assert.That(id.GetValue(first), Is.EqualTo("first"));
             Assert.That(id.GetValue(second), Is.EqualTo("second"));
         }
 
         [Test]
-        public void CharacterWriteUsesLegacyFieldsWithoutEmbeddingRecordId()
+        public void CharacterWriteUsesIdsAndLegacyFieldsWithoutEmbeddingRecordId()
         {
+            var catalog = LoadRules();
             var record = Find("ReadCharacter").Invoke(null, new object[]
             {
-                "record-id", @"{""characterName"":""Aria"",""HP"":12,""abilityScorePoints"":[{""abilityScoreName"":""Strength"",""abilityScorePoint"":13,""ablityModifierBonus"":2}]}"
+                "record-id", @"{""characterName"":""Aria"",""raceName"":""Human"",""characterClassName"":""Warrior"",""level"":2,""HP"":12,""abilityScorePoints"":[{""abilityScoreName"":""Strength"",""abilityScorePoint"":13,""ablityModifierBonus"":2}],""skillData"":[{""skillName"":""Slash""},{""skillName"":""Fireball""}]}", catalog
             });
             var write = Find("CharacterUpdate");
             Assert.That(write, Is.Not.Null);
-            var fields = (IDictionary)write.Invoke(null, new[] { record });
+            var fields = (IDictionary)write.Invoke(null, new[] { record, catalog });
+            Assert.That(fields["schemaVersion"], Is.EqualTo(2));
+            Assert.That(fields["raceName"], Is.EqualTo("Human"));
+            Assert.That(fields["raceId"], Is.Not.Empty);
+            Assert.That(fields["classId"], Is.Not.Empty);
             Assert.That(fields["HP"], Is.EqualTo(12));
             Assert.That(fields.Contains("firebaseKey"), Is.False);
-            var ability = (IDictionary)((IList)fields["abilityScorePoints"])[0];
+            var abilities = (IList)fields["abilityScorePoints"];
+            Assert.That(abilities.Count, Is.EqualTo(4));
+            var ability = (IDictionary)abilities[3];
+            Assert.That(ability["abilityScoreName"], Is.EqualTo("Strength"));
+            Assert.That(ability["abilityId"], Is.Not.Empty);
+            Assert.That(ability["abilityScorePoint"], Is.EqualTo(13));
             Assert.That(ability["ablityModifierBonus"], Is.EqualTo(2));
+            var skills = (IList)fields["skillData"];
+            Assert.That(skills.Count, Is.EqualTo(1));
+            var skill = (IDictionary)skills[0];
+            Assert.That(skill["skillName"], Is.EqualTo("Slash"));
+            Assert.That(skill["skillId"], Is.Not.Empty);
+
+            var reloaded = Find("ReadCharacter").Invoke(null, new[]
+            {
+                "record-id",
+                $@"{{""schemaVersion"":2,""characterName"":""Aria"",""raceId"":""{fields["raceId"]}"",""raceName"":""Old label"",
+                    ""classId"":""{fields["classId"]}"",""characterClassName"":""Old label"",""HP"":12,""level"":2,
+                    ""abilityScorePoints"":[{{""abilityId"":""{ability["abilityId"]}"",""abilityScoreName"":""Old label"",
+                        ""abilityScorePoint"":13,""ablityModifierBonus"":2}}],
+                    ""skillData"":[{{""skillId"":""{skill["skillId"]}"",""skillName"":""Old label""}}]}}",
+                catalog
+            });
+            Assert.That(DraftProperty(reloaded, "RepairError").GetValue(reloaded), Is.Null);
+            var savedAgain = (IDictionary)write.Invoke(null, new[] { reloaded, catalog });
+            CollectionAssert.AreEquivalent(fields.Keys, savedAgain.Keys);
+            Assert.That(savedAgain["raceName"], Is.EqualTo("Human"));
+            Assert.That(savedAgain["characterClassName"], Is.EqualTo("Warrior"));
+            Assert.That(((IDictionary)((IList)savedAgain["abilityScorePoints"])[3])["abilityScorePoint"], Is.EqualTo(13));
+            Assert.That(((IDictionary)((IList)savedAgain["skillData"])[0])["skillName"], Is.EqualTo("Slash"));
+        }
+
+        [Test]
+        public void OlderMainEditsRemigrateTogetherWhenTheyReplaceBothNestedCollections()
+        {
+            const string json = @"{""schemaVersion"":2,""characterName"":""Aria"",""raceId"":""human"",""raceName"":""Elf"",
+                ""classId"":""warrior"",""characterClassName"":""Wizard"",""HP"":16,""level"":2,
+                ""abilityScorePoints"":[{""abilityScoreName"":""Dexterity"",""abilityScorePoint"":14,""ablityModifierBonus"":2}],
+                ""skillData"":[{""skillName"":""Fireball"",""skillType"":""Damage""}]}";
+            var catalog = LoadRules();
+            var draft = Find("ReadCharacter").Invoke(null, new[] { "record-id", json, catalog });
+            Assert.That(DraftProperty(draft, "RepairError").GetValue(draft), Is.Null);
+
+            var fields = (IDictionary)Find("CharacterUpdate").Invoke(null, new[] { draft, catalog });
+            Assert.That(fields["raceId"], Is.EqualTo("elf"));
+            Assert.That(fields["classId"], Is.EqualTo("wizard"));
+            var dexterity = (IDictionary)((IList)fields["abilityScorePoints"])[1];
+            Assert.That(dexterity["abilityId"], Is.EqualTo("dexterity"));
+            Assert.That(dexterity["abilityScorePoint"], Is.EqualTo(14));
+            Assert.That(dexterity["ablityModifierBonus"], Is.EqualTo(2));
+            Assert.That(((IDictionary)((IList)fields["skillData"])[0])["skillId"], Is.EqualTo("fireball"));
+        }
+
+        [TestCase("invalid", "", "")]
+        [TestCase("human", @",""abilityId"":""invalid""", "")]
+        [TestCase("human", "", @",""skillId"":""invalid""")]
+        public void ExplicitInvalidIdsPreventLegacyFallback(string raceId, string abilityId, string skillId)
+        {
+            var draft = Find("ReadCharacter").Invoke(null, new[]
+            {
+                "record-id",
+                $@"{{""schemaVersion"":2,""characterName"":""Aria"",""raceId"":""{raceId}"",""raceName"":""Elf"",
+                    ""classId"":""warrior"",""characterClassName"":""Wizard"",""HP"":16,""level"":2,
+                    ""abilityScorePoints"":[{{""abilityScoreName"":""Dexterity"",""abilityScorePoint"":14{abilityId}}}],
+                    ""skillData"":[{{""skillName"":""Fireball"",""skillType"":""Damage""{skillId}}}]}}",
+                LoadRules()
+            });
+            Assert.That(DraftProperty(draft, "RepairError").GetValue(draft), Is.Not.Empty);
+        }
+
+        [TestCase("Unknown", "Warrior", "Strength")]
+        [TestCase("Human", "Unknown", "Strength")]
+        [TestCase("Human", "Warrior", "Unknown")]
+        public void UnresolvedLegacyDefinitionRetainsRecordAndBlocksSave(string race, string characterClass, string ability)
+        {
+            var catalog = LoadRules();
+            var record = Find("ReadCharacter").Invoke(null, new object[]
+            {
+                "record-id", $@"{{""characterName"":""Aria"",""raceName"":""{race}"",""characterClassName"":""{characterClass}"",""HP"":12,""abilityScorePoints"":[{{""abilityScoreName"":""{ability}"",""abilityScorePoint"":13}}]}}", catalog
+            });
+            Assert.That(DraftProperty(record, "RecordId").GetValue(record), Is.EqualTo("record-id"));
+            Assert.That(DraftProperty(record, "RepairError").GetValue(record), Is.Not.Empty);
+            var error = Assert.Throws<TargetInvocationException>(() => Find("CharacterUpdate").Invoke(null, new[] { record, catalog }));
+            Assert.That(error.InnerException, Is.TypeOf<FormatException>());
+        }
+
+        [Test]
+        public void LegacyReaderHandlesAnEmptyMigratedSkillList()
+        {
+            const string json = @"{""schemaVersion"":2,""characterName"":""Aria"",""raceId"":""human"",""raceName"":""Human"",
+                ""classId"":""warrior"",""characterClassName"":""Warrior"",""level"":2,""HP"":12,
+                ""abilityScorePoints"":[{""abilityId"":""strength"",""abilityScoreName"":""Strength"",""abilityScorePoint"":13}]}";
+            var dataType = Type.GetType("CharacterData, Assembly-CSharp", true);
+            var readerType = Type.GetType("CharacterCreation, Assembly-CSharp", true);
+            var root = new GameObject("Legacy reader test");
+            ScriptableObject character = null;
+            try
+            {
+                var reader = root.AddComponent(readerType);
+                var convert = readerType.GetMethod("ConvertDataToCharacter", BindingFlags.Instance | BindingFlags.NonPublic);
+                character = (ScriptableObject)convert.Invoke(reader, new[] { JsonUtility.FromJson(json, dataType) });
+                Assert.That(character.GetType().GetField("skills").GetValue(character), Is.Empty);
+                Assert.That(character.GetType().GetField("HP").GetValue(character), Is.EqualTo(12));
+            }
+            finally
+            {
+                Object.DestroyImmediate(character);
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [TestCase("[]", true)]
+        [TestCase(@"[{""skillId"":""fireball""}]", false)]
+        [TestCase(@"[{""skillId"":""slash""},{""skillId"":""slash""}]", false)]
+        public void VersionedRecordsRejectDuplicateOrUngrantedSkillIds(string skills, bool valid)
+        {
+            var record = Find("ReadCharacter").Invoke(null, new[]
+            {
+                "record-id",
+                $@"{{""schemaVersion"":2,""characterName"":""Aria"",""raceId"":""human"",""classId"":""warrior"",
+                    ""level"":2,""HP"":12,""skillData"":{skills}}}",
+                LoadRules()
+            });
+            Assert.That(DraftProperty(record, "RepairError").GetValue(record) == null, Is.EqualTo(valid));
+        }
+
+        [Test]
+        public void SwitchingRaceReplacesItsAdjustmentWithoutChangingTheSavedModifierBonus()
+        {
+            const BindingFlags methods = BindingFlags.Instance | BindingFlags.NonPublic;
+            var catalog = LoadRules();
+            var race = catalog.GetType().GetMethod("LegacyRace", methods);
+            var characterClass = catalog.GetType().GetMethod("LegacyClass", methods).Invoke(catalog, new object[] { "Warrior" });
+            var human = race.Invoke(catalog, new object[] { "Human" });
+            var elf = race.Invoke(catalog, new object[] { "Elf" });
+            var root = new GameObject("Race change test");
+            try
+            {
+                var managerType = Type.GetType("ASAL.CharacterManager, Assembly-CSharp", true);
+                var manager = root.AddComponent(managerType);
+                managerType.GetMethod("Initialize", methods).Invoke(manager, new[] { catalog });
+                var draft = Find("ReadCharacter").Invoke(null, new[]
+                {
+                    "record-id", @"{""characterName"":""Aria"",""raceName"":""Human"",""characterClassName"":""Warrior"",""level"":2,
+                        ""abilityScorePoints"":[{""abilityScoreName"":""Dexterity"",""abilityScorePoint"":11,""ablityModifierBonus"":2}]}", catalog
+                });
+                var setCatalog = managerType.GetMethod("SetCatalog", methods);
+                var dexterity = ((IList)DraftProperty(draft, "AbilityScores").GetValue(draft))[1];
+                var points = DraftProperty(dexterity, "Points");
+
+                setCatalog.Invoke(manager, new[] { draft, human, characterClass });
+                Assert.That(points.GetValue(dexterity), Is.EqualTo(11));
+                Assert.That(DraftProperty(dexterity, "Bonus").GetValue(dexterity), Is.EqualTo(2));
+                setCatalog.Invoke(manager, new[] { draft, elf, characterClass });
+                setCatalog.Invoke(manager, new[] { draft, elf, characterClass });
+                Assert.That(points.GetValue(dexterity), Is.EqualTo(12));
+                setCatalog.Invoke(manager, new[] { draft, human, characterClass });
+                Assert.That(points.GetValue(dexterity), Is.EqualTo(11));
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
         }
 
         [Test]

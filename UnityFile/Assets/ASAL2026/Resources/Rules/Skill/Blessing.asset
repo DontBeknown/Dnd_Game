@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9990c113dc2392d0af294b92c033925e, type: 3}
+  m_Name: Blessing
+  m_EditorClassIdentifier:
+  id: blessing
+  label: "Blessing"
+  legacyName: "Blessing"
+  aliases: []
+  icon: {fileID: 2800000, guid: c5abfcf8442b39f4dabc24707546968e, type: 3}
+  targetMode: 1
+  range: 2147483647
+  requiredRace: {fileID: 0}
+  actionCost: 1
+  maxDistinctTargets: 1
+  effects:
+  - kind: 2
+    ability: {fileID: 0}
+    hitDice: []
+    amountDice: []
+    criticalRaces: []
+    status: {fileID: 11400000, guid: bed3c101c74684a8203eec29f28311d7, type: 2}
+  category: 1
+  detail: "\tUse 1 action to buff a single target, increasing each Ability point
+    by 1 for a duration of 3 turns."

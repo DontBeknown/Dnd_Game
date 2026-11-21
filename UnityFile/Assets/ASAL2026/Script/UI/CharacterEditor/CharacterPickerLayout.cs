@@ -15,6 +15,7 @@ namespace ASAL
         [SerializeField] private TMP_Text levelValue;
         [SerializeField] private TMP_Text hpValue;
         [SerializeField] private TMP_Text remainingPoints;
+        [SerializeField] private TMP_Text[] abilityLabels;
         [SerializeField] private TMP_Text[] scoreValues;
         [SerializeField] private TMP_Text[] modifierValues;
         [SerializeField] private Button[] increaseScores;
@@ -50,29 +51,27 @@ namespace ASAL
             decreaseLevel.onClick.AddListener(() => StepLevel(-1));
             for (int index = 0; index < scoreValues.Length; index++)
             {
+                abilityLabels[index].text = $"{Characters.Abilities[index].Label} :";
                 int scoreIndex = index;
                 increaseScores[index].onClick.AddListener(() => StepAbility(scoreIndex, 1));
                 decreaseScores[index].onClick.AddListener(() => StepAbility(scoreIndex, -1));
             }
         }
 
-        internal override bool PrepareCatalogChange(CharacterData draft, Race nextRace) =>
-            nextRace.raceName == draft.raceName || Characters.CanChangeRace(draft, nextRace);
-
-        internal override void Render(CharacterData draft)
+        internal override void Render(CharacterDraft draft)
         {
-            hpValue.text = $"HP : {draft.HP}";
-            levelValue.text = $"Level : {draft.level}";
-            remainingPoints.text = $"Ability Points : {draft.abilityPoint}";
+            hpValue.text = $"HP : {draft.Hp}";
+            levelValue.text = $"Level : {draft.Level}";
+            remainingPoints.text = $"Ability Points : {draft.AbilityPoints}";
             for (int index = 0; index < scoreValues.Length; index++)
             {
                 var ability = FindAbility(draft, index);
-                scoreValues[index].text = (ability?.abilityScorePoint ?? 0).ToString();
+                scoreValues[index].text = ability.Points.ToString();
                 modifierValues[index].text = CharacterManager.AbilityModifier(ability).ToString("+0;-0;0");
             }
         }
 
-        internal override void SetControls(CharacterData draft, bool busy, bool hasRecord, bool canSelect, bool dirty)
+        internal override void SetControls(CharacterDraft draft, bool busy, bool hasRecord, bool canSelect, bool dirty)
         {
             bool canEdit = !busy;
             CreateButton.gameObject.SetActive(!hasRecord);
@@ -82,8 +81,8 @@ namespace ASAL
             confirmSelection.gameObject.SetActive(hasRecord && canSelect);
             confirmSelection.interactable = canEdit && hasRecord && !dirty;
             reset.interactable = canEdit;
-            increaseLevel.interactable = canEdit && draft.level < int.MaxValue;
-            decreaseLevel.interactable = canEdit && draft.level > 1;
+            increaseLevel.interactable = canEdit && draft.Level < int.MaxValue;
+            decreaseLevel.interactable = canEdit && draft.Level > 1;
             for (int index = 0; index < scoreValues.Length; index++)
             {
                 var ability = FindAbility(draft, index);
@@ -98,15 +97,8 @@ namespace ASAL
             if (draft == null)
                 return;
             var ability = FindAbility(draft, index);
-            if (!CharacterManager.CanAdjustAbility(draft, ability, change))
-                return;
-            if (ability == null)
-            {
-                ability = new CharacterData.AbilityScorePointsData { abilityScoreName = Characters.Abilities[index].abilityName };
-                draft.abilityScorePoints.Add(ability);
-            }
-            CharacterManager.TryAdjustAbility(draft, ability, change);
-            panel.UpdateDerivedStats();
+            if (CharacterManager.TryAdjustAbility(draft, ability, change))
+                panel.UpdateDerivedStats();
         }
 
         private void StepLevel(int change)
@@ -114,10 +106,10 @@ namespace ASAL
             var draft = panel.EditableDraft;
             if (draft == null)
                 return;
-            int next = (int)Math.Clamp((long)draft.level + change, 1L, int.MaxValue);
-            if (next == draft.level)
+            int next = (int)Math.Clamp((long)draft.Level + change, 1L, int.MaxValue);
+            if (next == draft.Level)
                 return;
-            draft.level = next;
+            draft.Level = next;
             panel.UpdateDerivedStats();
         }
     }

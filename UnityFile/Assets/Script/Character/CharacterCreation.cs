@@ -1068,6 +1068,9 @@ public class CharacterCreation : MonoBehaviourPun
         }
 
         character.skills = new List<Skill>();
+        if (data.skillData == null)
+            return character;
+
         foreach (var skillData in data.skillData)
         {
             Skill skill = Resources.Load<Skill>("Skills/" + skillData.skillName);

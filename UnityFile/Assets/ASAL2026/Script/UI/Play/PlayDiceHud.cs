@@ -27,10 +27,8 @@ namespace ASAL
             diceButtonRow.SetActive(false);
             dieRow.SetActive(false);
             diceList.onClick.AddListener(() => hud.ToggleModal(dicePanel, diceList));
-            foreach (var definition in Resources.LoadAll<Dice>("Dices").Where(die => die.diceType > 0)
-                         .OrderBy(die => die.diceType))
+            foreach (var sides in CharacterManager.Instance.Catalog.DiceSides)
             {
-                var sides = definition.diceType;
                 var row = AddRow(diceButtonRow);
                 SetText(row.GetComponentInChildren<TMP_Text>(true), "D" + sides);
                 row.GetComponentInChildren<Button>(true).onClick.AddListener(() =>

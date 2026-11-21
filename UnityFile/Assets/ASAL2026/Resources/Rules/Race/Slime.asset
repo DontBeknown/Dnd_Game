@@ -1,0 +1,43 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f81225fe06c7133818c5d1a703383268, type: 3}
+  m_Name: Slime
+  m_EditorClassIdentifier:
+  id: slime
+  label: "Slime"
+  legacyName: "Slime"
+  aliases: []
+  source: {fileID: 11400000, guid: 3fc9b9581d4a9b247a336ef44d34ddee, type: 2}
+  adjustments:
+  - ability: {fileID: 11400000, guid: e853928910103ebb0ffb103fe7857d03, type: 2}
+    points: 0
+  - ability: {fileID: 11400000, guid: 4eebe3cf467bc91be342e0953fb1ffeb, type: 2}
+    points: 0
+  - ability: {fileID: 11400000, guid: 3619ecc50b4750a3736d046bbf5dbb82, type: 2}
+    points: 0
+  - ability: {fileID: 11400000, guid: b6b3218420abefd31636c415449b80ff, type: 2}
+    points: 0
+  grants:
+  - {fileID: 11400000, guid: 00e88c8c0aa5d610f0b3e5225507330d, type: 2}
+  artwork:
+  - characterClass: {fileID: 11400000, guid: a7c79ff90b809d7f79d7edb068c6b1a4, type: 2}
+    portrait: {fileID: 2800000, guid: ab511ef5f40c72a4aa2e4a5b2e5e77cc, type: 3}
+    token: {fileID: 21300000, guid: e12f29334b286c449a7e7b392c62851e, type: 3}
+  - characterClass: {fileID: 11400000, guid: 37cc5479c612993424e6e4c1e2f7f653, type: 2}
+    portrait: {fileID: 2800000, guid: 31808a1f022915d438e083d912ee49f6, type: 3}
+    token: {fileID: 21300000, guid: bc4b4f19a1430a046b1e7aee608c0e6f, type: 3}
+  - characterClass: {fileID: 11400000, guid: 68d2ea5c48fe29599a6e421837d6671c, type: 2}
+    portrait: {fileID: 2800000, guid: 43bca1e0bae10a5469f305daecec729e, type: 3}
+    token: {fileID: 21300000, guid: 906d2afd5defd0245aeab67b1d90a196, type: 3}
+  - characterClass: {fileID: 11400000, guid: 3e36332a43a7beb8fb219eb938666d71, type: 2}
+    portrait: {fileID: 2800000, guid: 8e0aec5670e34314bbbb34c396a1b417, type: 3}
+    token: {fileID: 21300000, guid: 5a7c9dba2cdd8a540bec44338e3f49dc, type: 3}

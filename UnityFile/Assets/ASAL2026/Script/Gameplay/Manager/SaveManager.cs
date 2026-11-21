@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace ASAL
 {
-    public sealed class SaveManager : MonoBehaviour
+    public sealed partial class SaveManager : MonoBehaviour
     {
         private const string InventoryReceipts = "_asalInventoryOperations";
 
@@ -31,10 +31,11 @@ namespace ASAL
                 Instance = null;
         }
 
-        internal void Initialize()
+        internal void Initialize(RulesCatalog catalog)
         {
             if (!Uri.TryCreate(databaseUrl, UriKind.Absolute, out var url) || url.Scheme != Uri.UriSchemeHttps)
                 throw new InvalidOperationException("Assign the HTTPS test Realtime Database URL on SaveManager.");
+            rulesCatalog = catalog;
         }
 
         internal async Task<AccountProfile> LoadProfileAsync(string uid)
@@ -64,61 +65,6 @@ namespace ASAL
             return ReadProfile(uid, snapshot)
                 ?? throw new InvalidOperationException("The saved account profile has no display name.");
         }
-
-        internal Task<CharacterData[]> LoadCharactersAsync(string uid) => LoadCharactersAsync(uid, false);
-
-        internal async Task<CharacterData[]> LoadCharactersAsync(string uid, bool enemy)
-        {
-            var snapshot = await CharacterRecords(uid, enemy).GetValueAsync();
-            var records = new List<CharacterData>();
-            foreach (var child in snapshot.Children)
-            {
-                var record = ReadCharacter(child.Key, child.GetRawJsonValue());
-                if (record != null)
-                    records.Add(record);
-            }
-            return records.OrderBy(record => record.characterName, StringComparer.CurrentCulture)
-                .ThenBy(record => record.firebaseKey, StringComparer.Ordinal).ToArray();
-        }
-
-        internal string NewCharacterId(string uid, bool enemy) => CharacterRecords(uid, enemy).Push().Key;
-
-        internal Task SaveCharacterAsync(string uid, bool enemy, CharacterData record) =>
-            CharacterRecords(uid, enemy).Child(CharacterId(record.firebaseKey)).UpdateChildrenAsync(CharacterUpdate(record));
-
-        internal Task DeleteCharacterAsync(string uid, bool enemy, string id) =>
-            CharacterRecords(uid, enemy).Child(CharacterId(id)).RemoveValueAsync();
-
-        private DatabaseReference CharacterRecords(string uid, bool enemy) =>
-            Records(enemy ? "enemy_data" : "character_data", uid);
-
-        private static string CharacterId(string id)
-        {
-            if (string.IsNullOrWhiteSpace(id) || id.IndexOfAny(".#$[]/".ToCharArray()) >= 0 || id.Any(char.IsControl))
-                throw new FormatException("The character ID is invalid.");
-            return id;
-        }
-
-        private static Dictionary<string, object> CharacterUpdate(CharacterData record) => new()
-        {
-            ["characterName"] = record.characterName,
-            ["raceName"] = record.raceName,
-            ["characterClassName"] = record.characterClassName,
-            ["level"] = record.level,
-            ["HP"] = record.HP,
-            ["abilityPoint"] = record.abilityPoint,
-            ["abilityScorePoints"] = record.abilityScorePoints?.Select(ability => new Dictionary<string, object>
-            {
-                ["abilityScoreName"] = ability.abilityScoreName,
-                ["abilityScorePoint"] = ability.abilityScorePoint,
-                ["ablityModifierBonus"] = ability.ablityModifierBonus
-            }).ToList(),
-            ["skillData"] = record.skillData?.Select(skill => new Dictionary<string, object>
-            {
-                ["skillName"] = skill.skillName,
-                ["skillType"] = skill.skillType
-            }).ToList()
-        };
 
         internal async Task<KeyValuePair<string, string>[]> LoadMapIndexAsync(string uid)
         {
@@ -262,15 +208,6 @@ namespace ASAL
             if (string.IsNullOrEmpty(uid) || AuthManager.Instance?.CurrentAccount?.Uid != uid)
                 throw new InvalidOperationException("Inventory requires the signed-in owner.");
             return Records("inventory", uid);
-        }
-
-        private static CharacterData ReadCharacter(string id, string json)
-        {
-            var record = string.IsNullOrEmpty(json) ? null : JsonUtility.FromJson<CharacterData>(json);
-            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(record?.characterName))
-                return null;
-            record.firebaseKey = id;
-            return record;
         }
 
         private static string MapId(string id)

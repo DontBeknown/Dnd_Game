@@ -131,7 +131,7 @@ namespace ASAL
                 return;
             }
             var settings = server.AppSettings.CopyTo(new AppSettings());
-            settings.AppVersion += "-live-board-v3";
+            settings.AppVersion += "-live-board-v4";
             Begin(PhotonNetwork.ConnectUsingSettings(settings, server.StartInOfflineMode), "Could not connect to Photon.");
         }
 

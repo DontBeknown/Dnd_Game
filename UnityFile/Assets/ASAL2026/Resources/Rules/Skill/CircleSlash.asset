@@ -1,0 +1,37 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9990c113dc2392d0af294b92c033925e, type: 3}
+  m_Name: CircleSlash
+  m_EditorClassIdentifier:
+  id: circle-slash
+  label: "Circle slash"
+  legacyName: "Circle slash"
+  aliases: []
+  icon: {fileID: 2800000, guid: 4f7d83842c0c6fa4db23620eb22915d4, type: 3}
+  targetMode: 3
+  range: 1
+  requiredRace: {fileID: 0}
+  actionCost: 1
+  maxDistinctTargets: 1
+  effects:
+  - kind: 0
+    ability: {fileID: 11400000, guid: e853928910103ebb0ffb103fe7857d03, type: 2}
+    hitDice:
+    - die: {fileID: 11400000, guid: 5cb5247cc5af8ac468b9921d4f6a7699, type: 2}
+      count: 1
+    amountDice:
+    - die: {fileID: 11400000, guid: d65d455a91ce5a14a9d80c9c21e8cab4, type: 2}
+      count: 1
+    criticalRaces: []
+    status: {fileID: 0}
+  category: 0
+  detail: "\tUse 1 action to deal damage to all targets within 1 meter of the player."

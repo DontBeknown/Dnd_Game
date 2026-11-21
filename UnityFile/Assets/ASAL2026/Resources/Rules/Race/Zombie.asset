@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f81225fe06c7133818c5d1a703383268, type: 3}
+  m_Name: Zombie
+  m_EditorClassIdentifier:
+  id: zombie
+  label: "Zombie"
+  legacyName: "Zombie"
+  aliases: []
+  source: {fileID: 11400000, guid: f08a506d6455f5c4fafa2c6bd6257969, type: 2}
+  adjustments:
+  - ability: {fileID: 11400000, guid: e853928910103ebb0ffb103fe7857d03, type: 2}
+    points: -1
+  - ability: {fileID: 11400000, guid: 4eebe3cf467bc91be342e0953fb1ffeb, type: 2}
+    points: -1
+  - ability: {fileID: 11400000, guid: 3619ecc50b4750a3736d046bbf5dbb82, type: 2}
+    points: -1
+  - ability: {fileID: 11400000, guid: b6b3218420abefd31636c415449b80ff, type: 2}
+    points: -1
+  grants:
+  - {fileID: 11400000, guid: b65ebb894b6ba35f298ec8a79953778a, type: 2}
+  artwork:
+  - characterClass: {fileID: 0}
+    portrait: {fileID: 2800000, guid: eb3080a65fd35254984397b6a53ebc54, type: 3}
+    token: {fileID: 21300000, guid: 5adfe13bb3c64824bbc580bfb263c256, type: 3}

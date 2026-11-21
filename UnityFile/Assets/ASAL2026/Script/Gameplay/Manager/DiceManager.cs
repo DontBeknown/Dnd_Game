@@ -23,6 +23,59 @@ namespace ASAL
         public MatchRoll Roll;
     }
 
+    internal readonly struct DiceTerm
+    {
+        internal DiceTerm(int sides, int count)
+        {
+            Sides = sides;
+            Count = count;
+        }
+
+        internal int Sides { get; }
+        internal int Count { get; }
+    }
+
+    internal sealed class DiceFormula
+    {
+        private readonly DiceTerm[] terms;
+
+        internal DiceFormula(IEnumerable<DiceTerm> terms) => this.terms = terms.ToArray();
+
+        internal string DisplayText => terms.Length == 0 ? "-"
+            : string.Join("+ ", terms.Select(term => $"{term.Count}D{term.Sides}"));
+
+        internal int Roll(Func<int, int> roll, int extraPerTerm)
+        {
+            int total = 0;
+            foreach (var term in terms)
+            {
+                for (int i = 0; i < term.Count + extraPerTerm; i++)
+                    total += roll(term.Sides);
+            }
+            return total;
+        }
+    }
+
+    internal sealed class DiceRoll
+    {
+        private readonly Func<int, int> roll;
+        private readonly List<int> sides = new();
+        private readonly List<int> faces = new();
+
+        internal DiceRoll(Func<int, int> roll) => this.roll = roll;
+        internal int Roll(DiceFormula formula, int extraPerTerm = 0) => formula.Roll(RollDie, extraPerTerm);
+        internal MatchRoll ToResult(string id) => faces.Count == 0 ? null
+            : DiceManager.MakeRoll(id, sides.ToArray(), faces.ToArray());
+
+        private int RollDie(int sideCount)
+        {
+            var face = roll(sideCount);
+            sides.Add(sideCount);
+            faces.Add(face);
+            return face;
+        }
+    }
+
     public sealed class DiceManager : MonoBehaviour
     {
         private HashSet<int> supported;
@@ -42,7 +95,7 @@ namespace ASAL
                 Instance = null;
         }
 
-        internal void Initialize() => supported = Resources.LoadAll<Dice>("Dices").Select(dice => dice.diceType).ToHashSet();
+        internal void Initialize(RulesCatalog catalog) => supported = catalog.DiceSides.ToHashSet();
 
         internal void Shutdown() => Rolled = null;
 
@@ -63,7 +116,9 @@ namespace ASAL
             ReportPrivate(Describe("DM", roll), roll);
         }
 
-        internal bool Allows(int[] sides) => sides is { Length: > 0 and <= 20 } && sides.All(supported.Contains);
+        internal bool Supports(int sides) => supported.Contains(sides);
+
+        internal bool Allows(int[] sides) => sides is { Length: > 0 and <= 20 } && sides.All(Supports);
 
         internal static int RollFace(int sides) => Random.Range(1, sides + 1);
 

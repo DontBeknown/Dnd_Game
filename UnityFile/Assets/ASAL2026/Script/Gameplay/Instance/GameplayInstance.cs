@@ -57,12 +57,13 @@ namespace ASAL
                 Initialize(() => input.Initialize(shellView.InputModule), input.Shutdown);
                 Initialize(() => ui.Initialize(shellView.ScreenRoot), ui.Shutdown);
                 Initialize(auth.Initialize, auth.Shutdown);
-                saves.Initialize();
+                var rules = RulesCatalog.Load();
+                saves.Initialize(rules);
                 cleanup.Push(photon.Shutdown);
                 Initialize(rooms.Initialize, rooms.Shutdown);
-                characters.Initialize();
-                Initialize(combat.Initialize, combat.Shutdown);
-                Initialize(dice.Initialize, dice.Shutdown);
+                characters.Initialize(rules);
+                Initialize(() => combat.Initialize(rules), combat.Shutdown);
+                Initialize(() => dice.Initialize(rules), dice.Shutdown);
                 Initialize(inventory.Initialize, inventory.Shutdown);
                 Initialize(chat.Initialize, chat.Shutdown);
                 managers.SetActive(true);

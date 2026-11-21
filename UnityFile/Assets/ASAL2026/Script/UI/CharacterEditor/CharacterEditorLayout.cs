@@ -13,45 +13,44 @@ namespace ASAL
         internal override void Bind(CharacterEditorPanel panel, bool enemy)
         {
             for (int index = 0; index < scores.Length; index++)
-                abilityLabels[index].text = Characters.Abilities[index].abilityName;
+                abilityLabels[index].text = Characters.Abilities[index].Label;
         }
 
-        internal override void LoadDraft(CharacterData draft) =>
-            level.SetTextWithoutNotify(draft.level.ToString());
+        internal override void LoadDraft(CharacterDraft draft) =>
+            level.SetTextWithoutNotify(draft.Level.ToString());
 
-        internal override bool PrepareCatalogChange(CharacterData draft, Race nextRace)
+        internal override bool PrepareCatalogChange(CharacterDraft draft)
         {
             if (int.TryParse(level.text, out var value) && value > 0)
-                draft.level = value;
-            ReadScores(draft);
-            return true;
+                draft.Level = value;
+            return ReadScores(draft);
         }
 
-        internal override bool ReadForSave(CharacterData draft)
+        internal override bool ReadForSave(CharacterDraft draft)
         {
             if (!int.TryParse(level.text, out var savedLevel) || !int.TryParse(hp.text, out var savedHp) || !ReadScores(draft))
                 return false;
 
-            draft.level = savedLevel;
-            draft.HP = savedHp;
+            draft.Level = savedLevel;
+            draft.Hp = savedHp;
             return true;
         }
 
-        internal override void Render(CharacterData draft)
+        internal override void Render(CharacterDraft draft)
         {
-            hp.SetTextWithoutNotify(draft.HP.ToString());
+            hp.SetTextWithoutNotify(draft.Hp.ToString());
             for (int index = 0; index < scores.Length; index++)
-                scores[index].SetTextWithoutNotify((FindAbility(draft, index)?.abilityScorePoint ?? 0).ToString());
+                scores[index].SetTextWithoutNotify(FindAbility(draft, index).Points.ToString());
         }
 
-        internal override void SetControls(CharacterData draft, bool busy, bool hasRecord, bool canSelect, bool dirty)
+        internal override void SetControls(CharacterDraft draft, bool busy, bool hasRecord, bool canSelect, bool dirty)
         {
             level.interactable = hp.interactable = !busy;
             foreach (var score in scores)
                 score.interactable = !busy;
         }
 
-        private bool ReadScores(CharacterData draft)
+        private bool ReadScores(CharacterDraft draft)
         {
             var values = new int[scores.Length];
             for (int index = 0; index < scores.Length; index++)
@@ -59,20 +58,7 @@ namespace ASAL
                     return false;
 
             for (int index = 0; index < scores.Length; index++)
-            {
-                var ability = FindAbility(draft, index);
-                if (ability == null)
-                {
-                    if (values[index] == 0)
-                        continue;
-                    ability = new CharacterData.AbilityScorePointsData
-                    {
-                        abilityScoreName = Characters.Abilities[index].abilityName
-                    };
-                    draft.abilityScorePoints.Add(ability);
-                }
-                ability.abilityScorePoint = values[index];
-            }
+                FindAbility(draft, index).Points = values[index];
             return true;
         }
     }

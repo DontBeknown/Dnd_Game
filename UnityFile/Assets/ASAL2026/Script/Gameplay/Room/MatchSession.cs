@@ -327,10 +327,12 @@ namespace ASAL
                 var records = await CharacterManager.Instance.LoadAsync(account, false);
                 if (IsCurrentProjection(recordId, account))
                 {
-                    localCharacter = CharacterManager.Instance.Project(Array.Find(records, record => record?.firebaseKey == recordId));
+                    var record = Array.Find(records, candidate => candidate?.RecordId == recordId);
+                    localCharacter = CharacterManager.Instance.Project(record);
                     projectionInvalid = localCharacter == null;
                     if (projectionInvalid)
-                        room.SetMatchStatus("The selected character has invalid or missing gameplay data. Select a saved character again.");
+                        room.SetMatchStatus(record?.RepairError
+                            ?? "The selected character has invalid or missing gameplay data. Select a saved character again.");
                 }
             }
             catch (Exception)
@@ -545,7 +547,7 @@ namespace ASAL
                 enemy = enemy.At(command.Position);
                 enemy.Hp = enemy.Character.MaxHp;
                 delta = new MatchDelta { Token = enemy };
-                CombatManager.ResolvePlacement(Committed, command, delta);
+                CombatManager.Instance.ResolvePlacement(Committed, command, delta);
             }
             else if (!CombatManager.Instance.TryResolve(Committed, command, actor, dm, out delta, out privateReport))
             {
@@ -635,15 +637,31 @@ namespace ASAL
             value.TurnOrder != null && value.TurnOrder.All(entry => entry != null
                 && !string.IsNullOrEmpty(entry.TokenId) && entry.Hp >= 0 && entry.Initiative is >= 1 and <= 20
                 && entry.ActionsLeft is >= 0 and <= 1 && entry.Statuses != null
-                && entry.Statuses.All(status => status != null && !string.IsNullOrEmpty(status.Name))
-                && entry.MultiShotTargets is { Length: <= 3 })
+                && entry.Statuses.All(status => status != null && status.Turns >= -1
+                    && CharacterManager.Instance.Catalog.Status(new StatusId(status.StatusId)) != null)
+                && entry.Statuses.Select(status => status.StatusId).Distinct().Count() == entry.Statuses.Length
+                && ValidFollowUps(entry))
             && value.TurnOrder.Select(entry => entry.TokenId).Distinct().Count() == value.TurnOrder.Length
             && (string.IsNullOrEmpty(value.ActiveTokenId) || value.Find(value.ActiveTokenId)?.Hp > 0);
+
+        private static bool ValidFollowUps(Combatant entry)
+        {
+            var targets = entry.FollowUpTargets;
+            if (targets == null)
+                return false;
+            if (targets.Length == 0)
+                return string.IsNullOrEmpty(entry.FollowUpSkillId);
+
+            var skill = CharacterManager.Instance.Catalog.Skill(new SkillId(entry.FollowUpSkillId));
+            return skill != null && skill.Action.MaxDistinctTargets > 1 && targets.Length <= skill.Action.MaxDistinctTargets
+                && targets.All(id => !string.IsNullOrEmpty(id)) && targets.Distinct().Count() == targets.Length;
+        }
 
         private static bool ValidRoll(MatchRoll roll, string id) => roll == null || string.IsNullOrEmpty(roll.Id)
             || roll.Id == id && roll.Sides is { Length: > 0 } && roll.Faces != null
             && roll.Sides.Length == roll.Faces.Length
-            && roll.Sides.Zip(roll.Faces, (sides, face) => sides <= 20 && face >= 1 && face <= sides).All(valid => valid)
+            && roll.Sides.Zip(roll.Faces, (sides, face) => DiceManager.Instance.Supports(sides)
+                && face >= 1 && face <= sides).All(valid => valid)
             && roll.Faces.Sum() == roll.Total;
 
         private void Reject(int actor)

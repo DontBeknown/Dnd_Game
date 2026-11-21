@@ -57,7 +57,8 @@ namespace ASAL
                     var row = AddRow(turnRow);
                     SetText(row.GetComponentInChildren<TMP_Text>(true), (activeId == token.Id ? "▶ " : "") +
                         token.Name + "  " + participant.Initiative +
-                        (participant.Statuses.Length == 0 ? "" : "  " + string.Join(", ", participant.Statuses.Select(status => status.Name))));
+                        (participant.Statuses.Length == 0 ? "" : "  " + string.Join(", ", participant.Statuses.Select(status =>
+                            CharacterManager.Instance.Catalog.Status(new StatusId(status.StatusId))?.Label))));
                 }
             }
         }

@@ -8117,7 +8117,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 'Ability Point : 99'
+  m_text: 'Ability Point : 999'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: dcafcad26325ddd40900d15c02a3db0f, type: 2}
   m_sharedMaterial: {fileID: -3285163966696480068, guid: dcafcad26325ddd40900d15c02a3db0f, type: 2}
@@ -8144,8 +8144,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 45
-  m_fontSizeBase: 45
+  m_fontSize: 40
+  m_fontSizeBase: 40
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -8163,7 +8163,7 @@ MonoBehaviour:
   m_charWidthMaxAdj: 0
   m_TextWrappingMode: 1
   m_wordWrappingRatios: 0.4
-  m_overflowMode: 0
+  m_overflowMode: 3
   m_linkedTextComponent: {fileID: 0}
   parentLinkedComponent: {fileID: 0}
   m_enableKerning: 1
@@ -9450,8 +9450,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 45
-  m_fontSizeBase: 45
+  m_fontSize: 40
+  m_fontSizeBase: 40
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -9816,11 +9816,11 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 4905774102469559086}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0.16, y: 0.16}
-  m_AnchorMax: {x: 0.44, y: 0.28}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 1, y: 1}
   m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
-  m_Pivot: {x: 0.5, y: 0.5}
+  m_SizeDelta: {x: 0, y: 50.218}
+  m_Pivot: {x: 0.5, y: 1}
 --- !u!222 &4902946950830718359
 CanvasRenderer:
   m_ObjectHideFlags: 0
@@ -9849,7 +9849,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 
+  m_text: Test Test
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -9858,8 +9858,8 @@ MonoBehaviour:
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4294967295
-  m_fontColor: {r: 1, g: 1, b: 1, a: 1}
+    rgba: 4278190080
+  m_fontColor: {r: 0, g: 0, b: 0, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -14501,6 +14501,11 @@ MonoBehaviour:
   levelValue: {fileID: 3061979362680041255}
   hpValue: {fileID: 6970637353078978441}
   remainingPoints: {fileID: 774451069998922609}
+  abilityLabels:
+  - {fileID: 1255876447854201218}
+  - {fileID: 1236954895027279992}
+  - {fileID: 2396322265139449669}
+  - {fileID: 6678911464056142692}
   scoreValues:
   - {fileID: 670556137779302783}
   - {fileID: 8003496177009140420}

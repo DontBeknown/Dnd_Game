@@ -16,13 +16,13 @@ namespace ASAL
         internal virtual bool UsesTemplateDraft => false;
 
         internal abstract void Bind(CharacterEditorPanel panel, bool enemy);
-        internal virtual void LoadDraft(CharacterData draft) { }
-        internal virtual bool PrepareCatalogChange(CharacterData draft, Race nextRace) => true;
-        internal virtual bool ReadForSave(CharacterData draft) => true;
-        internal abstract void Render(CharacterData draft);
-        internal abstract void SetControls(CharacterData draft, bool busy, bool hasRecord, bool canSelect, bool dirty);
+        internal virtual void LoadDraft(CharacterDraft draft) { }
+        internal virtual bool PrepareCatalogChange(CharacterDraft draft) => true;
+        internal virtual bool ReadForSave(CharacterDraft draft) => true;
+        internal abstract void Render(CharacterDraft draft);
+        internal abstract void SetControls(CharacterDraft draft, bool busy, bool hasRecord, bool canSelect, bool dirty);
 
-        internal static CharacterData.AbilityScorePointsData FindAbility(CharacterData draft, int index) =>
-            draft.abilityScorePoints.Find(item => item.abilityScoreName == Characters.Abilities[index].abilityName);
+        internal static CharacterAbilityScore FindAbility(CharacterDraft draft, int index) =>
+            draft.Score(Characters.Abilities[index].Id);
     }
 }

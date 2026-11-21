@@ -19,6 +19,8 @@ namespace ASAL
         private bool enemy;
         private bool selected;
         private bool preview;
+        private Sprite defaultMarker;
+        private Vector3 defaultMarkerScale;
         private string tokenSession;
         private Vector3 remoteTarget;
         private float interpolationRemaining;
@@ -79,12 +81,37 @@ namespace ASAL
 
         internal void Bind(MatchToken token, Vector3 position)
         {
+            if (Token == null)
+            {
+                defaultMarker = marker.sprite;
+                defaultMarkerScale = marker.transform.localScale;
+            }
+
             Token = token;
             SetBoardPosition(position, token.Position);
             enemy = token.OwnerActor == 0;
             label.text = token.Name;
             UpdateHealth(token.Hp);
+            UpdateMarker(token.Character);
             RefreshOutline();
+        }
+
+        private void UpdateMarker(MatchCharacter character)
+        {
+            var art = character == null ? null : CharacterManager.Instance?.Catalog?.TokenArt(
+                new RaceId(character.RaceId), new ClassId(character.ClassId));
+            marker.sprite = art ? art : defaultMarker;
+
+            var scale = defaultMarkerScale;
+            if (art && defaultMarker)
+            {
+                var originalSize = defaultMarker.bounds.size;
+                var artSize = art.bounds.size;
+                float fit = Mathf.Min(originalSize.x / artSize.x, originalSize.y / artSize.y);
+                scale.x *= fit;
+                scale.y *= fit;
+            }
+            marker.transform.localScale = scale;
         }
 
         internal void SetBoardPosition(Vector3 worldPosition, Vector2 boardPosition)

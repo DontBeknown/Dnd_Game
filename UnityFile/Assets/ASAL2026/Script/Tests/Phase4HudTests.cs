@@ -262,6 +262,40 @@ namespace ASAL.Tests
             Assert.That(characterHud.GetMethod("CanCastTokenSkill", flags)?.Invoke(null, arguments), Is.EqualTo(casts));
         }
 
+        [Test]
+        public void ActiveSkillsBeyondTheFourAuthoredSlotsAppearOnTheNextPage()
+        {
+            const BindingFlags instance = BindingFlags.NonPublic | BindingFlags.Instance;
+            const BindingFlags staticMethods = BindingFlags.NonPublic | BindingFlags.Static;
+            var hudType = Type.GetType("ASAL.PlayCharacterHud, Assembly-CSharp", true);
+            var catalogType = Type.GetType("ASAL.RulesCatalog, Assembly-CSharp", true);
+            var catalog = catalogType.GetMethod("Load", staticMethods).Invoke(null, null);
+            var lookup = catalogType.GetMethod("LegacySkill", instance);
+            var slash = lookup.Invoke(catalog, new object[] { "Slash" });
+            var fireball = lookup.Invoke(catalog, new object[] { "Fireball" });
+            var skills = Array.CreateInstance(slash.GetType(), 5);
+            for (var i = 0; i < 4; i++)
+                skills.SetValue(slash, i);
+            skills.SetValue(fireball, 4);
+
+            var play = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/ASAL2026/Prefab/UI/Play/Play.prefab");
+            var instanceRoot = UnityEngine.Object.Instantiate(play);
+            var hud = instanceRoot.GetComponentInChildren(hudType, true);
+            var slot = hudType.GetMethod("SkillAt", instance);
+            var page = hudType.GetField("skillPage", instance);
+            try
+            {
+                Assert.That(slot.Invoke(hud, new object[] { skills, 0 }), Is.SameAs(slash));
+                page.SetValue(hud, 1);
+                Assert.That(slot.Invoke(hud, new object[] { skills, 0 }), Is.SameAs(fireball));
+                Assert.That(slot.Invoke(hud, new object[] { skills, 1 }), Is.Null);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(instanceRoot);
+            }
+        }
+
         [TestCase("  <b>Hello</b>  ", "<b>Hello</b>")]
         [TestCase("   ", null)]
         public void ChatPreservesLiteralUserText(string input, string expected)

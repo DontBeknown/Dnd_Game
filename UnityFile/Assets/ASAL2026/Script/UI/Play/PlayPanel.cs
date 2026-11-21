@@ -198,7 +198,7 @@ namespace ASAL
             }
         }
 
-        internal void StartEnemyPlacement(CharacterData template)
+        internal void StartEnemyPlacement(CharacterDraft template)
         {
             if (!Current)
                 return;
@@ -206,12 +206,12 @@ namespace ASAL
             var character = CharacterManager.Instance.Project(template);
             if (character == null)
             {
-                ShowNotice("This enemy template has invalid gameplay data. Edit the template before placing it.");
+                ShowNotice(template?.RepairError ?? "This enemy template has invalid gameplay data. Edit the template before placing it.");
                 return;
             }
             enemyTemplate = new MatchToken
             {
-                RecordId = template.firebaseKey, Name = character.Name, Character = character, Hp = character.MaxHp
+                RecordId = template.RecordId, Name = character.Name, Character = character, Hp = character.MaxHp
             };
             placementStartedFrame = Time.frameCount;
             BindPreview(enemyTemplate);

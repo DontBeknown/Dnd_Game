@@ -12,9 +12,10 @@ namespace ASAL
 
         private string selectedTokenId;
 
-        internal Race[] Races { get; private set; }
-        internal CharacterClass[] Classes { get; private set; }
-        internal AbilityScore[] Abilities { get; private set; }
+        internal RulesCatalog Catalog { get; private set; }
+        internal IReadOnlyList<RaceDefinition> Races => Catalog.Races;
+        internal IReadOnlyList<ClassDefinition> Classes => Catalog.Classes;
+        internal IReadOnlyList<AbilityDefinition> Abilities => Catalog.Abilities;
         private Character heroTemplate;
         private Character enemyTemplate;
 
@@ -31,32 +32,30 @@ namespace ASAL
                 Instance = null;
         }
 
-        internal void Initialize()
+        internal void Initialize(RulesCatalog catalog)
         {
-            Races = Resources.LoadAll<Race>("Races").OrderBy(item => item.raceName).ToArray();
-            Classes = Resources.LoadAll<CharacterClass>("Classes").OrderBy(item => item.className).ToArray();
-            Abilities = Resources.LoadAll<AbilityScore>("AbilityScores").OrderBy(item => item.abilityName).ToArray();
+            Catalog = catalog;
             heroTemplate = Resources.Load<Character>("TemplateCharacter");
             enemyTemplate = Resources.Load<Character>("TemplateEnemy");
+            ValidateTemplate(heroTemplate);
+            ValidateTemplate(enemyTemplate);
         }
 
-        internal Task<CharacterData[]> LoadAsync(AccountProfile account, bool enemy)
+        internal Task<CharacterDraft[]> LoadAsync(AccountProfile account, bool enemy)
         {
             CheckAccess(account, enemy);
             return SaveManager.Instance.LoadCharactersAsync(account.Uid, enemy);
         }
 
-        internal Task SaveAsync(AccountProfile account, bool enemy, CharacterData record)
+        internal Task SaveAsync(AccountProfile account, bool enemy, CharacterDraft record)
         {
             CheckAccess(account, enemy);
-            record.characterName = record.characterName?.Trim();
-            if (string.IsNullOrEmpty(record.characterName) || record.characterName.Length > 64
-                || record.level < 1 || record.HP < 1 || record.abilityPoint < 0)
+            if (record.RepairError != null)
+                throw new FormatException(record.RepairError);
+            record.Name = record.Name?.Trim();
+            if (Project(record) == null || record.AbilityPoints < 0)
                 throw new FormatException("Enter a name, positive level and HP, and valid ability scores.");
-            if (!Races.Any(item => item.raceName == record.raceName)
-                || !Classes.Any(item => item.className == record.characterClassName))
-                throw new FormatException("Select an existing race and class.");
-            record.firebaseKey ??= SaveManager.Instance.NewCharacterId(account.Uid, enemy);
+            record.RecordId ??= SaveManager.Instance.NewCharacterId(account.Uid, enemy);
             return SaveManager.Instance.SaveCharacterAsync(account.Uid, enemy, record);
         }
 
@@ -66,26 +65,20 @@ namespace ASAL
             return SaveManager.Instance.DeleteCharacterAsync(account.Uid, enemy, id);
         }
 
-        internal MatchCharacter Project(CharacterData record)
+        internal MatchCharacter Project(CharacterDraft record)
         {
-            if (record == null)
+            if (record == null || record.RepairError != null)
                 return null;
 
-            var race = Array.Find(Races, item => item.raceName == record.raceName);
-            var characterClass = Array.Find(Classes, item => item.className == record.characterClassName);
-            var skills = CatalogSkills(race, characterClass);
             var projection = new MatchCharacter
             {
-                Name = record.characterName, Race = record.raceName, Class = record.characterClassName,
-                MaxHp = record.HP, Level = record.level,
-                Abilities = Abilities.Select(ability =>
+                Name = record.Name, RaceId = record.RaceId.Value, ClassId = record.ClassId.Value,
+                MaxHp = record.Hp, Level = record.Level,
+                Abilities = record.AbilityScores.Select(score => new MatchAbility
                 {
-                    var score = record.abilityScorePoints?.Find(item => item?.abilityScoreName == ability.abilityName);
-                    return new MatchAbility { Name = ability.abilityName, Points = score?.abilityScorePoint ?? 10,
-                        Bonus = score?.ablityModifierBonus ?? 0 };
+                    AbilityId = score.Id.Value, Points = score.Points, Bonus = score.Bonus
                 }).ToArray(),
-                Skills = record.skillData is { Count: > 0 }
-                    ? skills.Intersect(record.skillData.Select(item => item?.skillName)).ToArray() : skills
+                SkillIds = record.SkillIds.Select(skill => skill.Value).ToArray()
             };
             return ValidProjection(projection) ? projection : null;
         }
@@ -93,118 +86,119 @@ namespace ASAL
         internal bool ValidProjection(MatchCharacter character)
         {
             if (character == null || string.IsNullOrWhiteSpace(character.Name) || character.Name.Length > 64
-                || character.MaxHp < 1 || character.Level < 1 || character.Skills == null
-                || character.Abilities == null || character.Abilities.Length != Abilities.Length
+                || character.MaxHp < 1 || character.Level < 1 || character.SkillIds == null
+                || character.Abilities == null || character.Abilities.Length != Abilities.Count
                 || character.Abilities.Any(score => score == null || score.Points < 0
-                    || !Abilities.Any(ability => ability.abilityName == score.Name))
-                || character.Abilities.Select(score => score.Name).Distinct().Count() != Abilities.Length)
+                    || string.IsNullOrEmpty(score.AbilityId) || Catalog.Ability(new AbilityId(score.AbilityId)) == null)
+                || character.Abilities.Select(score => score.AbilityId).Distinct().Count() != Abilities.Count
+                || string.IsNullOrEmpty(character.RaceId) || string.IsNullOrEmpty(character.ClassId))
                 return false;
 
-            var race = Array.Find(Races, item => item.raceName == character.Race);
-            var characterClass = Array.Find(Classes, item => item.className == character.Class);
-            if (!race || !characterClass)
+            var race = Catalog.Race(new RaceId(character.RaceId));
+            var characterClass = Catalog.Class(new ClassId(character.ClassId));
+            if (race == null || characterClass == null)
                 return false;
-            var availableSkills = CatalogSkills(race, characterClass);
-            return character.Skills.Length <= availableSkills.Length && character.Skills.All(availableSkills.Contains)
-                && character.Skills.Distinct().Count() == character.Skills.Length;
+            var availableSkills = GrantedSkills(race, characterClass);
+            return character.SkillIds.Length <= availableSkills.Length
+                && character.SkillIds.All(id => availableSkills.Contains(new SkillId(id)))
+                && character.SkillIds.Distinct().Count() == character.SkillIds.Length;
         }
 
-        private static string[] CatalogSkills(Race race, CharacterClass characterClass) =>
-            (characterClass?.classSkills ?? new List<Skill>()).Concat(race?.raceSkills ?? new List<Skill>())
-                .Where(skill => skill).Select(skill => skill.skillName).Distinct().ToArray();
+        internal static SkillId[] GrantedSkills(RaceDefinition race, ClassDefinition characterClass) =>
+            characterClass.Skills.Concat(race.Skills).Distinct().ToArray();
 
-        internal CharacterData NewDraft() => new()
+        internal CharacterDraft NewDraft() => new()
         {
-            level = 1,
-            HP = 1,
-            abilityScorePoints = Abilities.Select(ability => new CharacterData.AbilityScorePointsData
-            {
-                abilityScoreName = ability.abilityName, abilityScorePoint = 10
-            }).ToList(),
-            skillData = new List<CharacterData.SkillData>()
+            Level = 1,
+            Hp = 1,
+            AbilityScores = Abilities.Select(ability => new CharacterAbilityScore(ability.Id)).ToList()
         };
 
-        internal CharacterData NewRoomDraft(bool enemy)
+        internal CharacterDraft NewRoomDraft(bool enemy)
         {
             var template = enemy ? enemyTemplate : heroTemplate;
-            var draft = new CharacterData
+            var draft = new CharacterDraft
             {
-                characterName = template.characterName,
-                level = template.level,
-                abilityPoint = template.abilityPoint,
-                abilityScorePoints = template.abilityScorepoints.Select(score => new CharacterData.AbilityScorePointsData
+                Name = template.characterName,
+                Level = template.level,
+                AbilityPoints = template.abilityPoint,
+                AbilityScores = Abilities.Select(ability =>
                 {
-                    abilityScoreName = score.abilityScore.abilityName,
-                    abilityScorePoint = score.abilityScorePoint,
-                    ablityModifierBonus = score.ablityModifierBonus
+                    var score = template.abilityScorepoints.Find(item => item.abilityScore == ability.Source);
+                    return new CharacterAbilityScore(ability.Id, score?.ablityModifierBonus ?? 0)
+                    {
+                        Points = score?.abilityScorePoint ?? 10
+                    };
                 }).ToList()
             };
-            SetCatalog(draft, template.race, template.characterClass);
+            SetCatalog(draft, Catalog.RaceFromSource(template.race), Catalog.ClassFromSource(template.characterClass));
             return draft;
         }
 
-        internal static bool CanAdjustAbility(CharacterData draft, CharacterData.AbilityScorePointsData score, int change)
+        private void ValidateTemplate(Character template)
         {
-            int value = score?.abilityScorePoint ?? 0;
-            return change == 1 ? draft.abilityPoint > 0 && value < int.MaxValue
-                : change == -1 && value > 0 && draft.abilityPoint < int.MaxValue;
+            if (!template || Catalog.RaceFromSource(template.race) == null || Catalog.ClassFromSource(template.characterClass) == null
+                || template.abilityScorepoints == null || template.abilityScorepoints.Any(score =>
+                    score == null || Catalog.AbilityFromSource(score.abilityScore) == null)
+                || template.abilityScorepoints.Select(score => score.abilityScore).Distinct().Count() != template.abilityScorepoints.Count)
+                throw new InvalidOperationException("A character template references missing or duplicate catalog definitions.");
         }
 
-        internal static bool TryAdjustAbility(CharacterData draft, CharacterData.AbilityScorePointsData score, int change)
+        internal static bool CanAdjustAbility(CharacterDraft draft, CharacterAbilityScore score, int change) =>
+            score != null && (change == 1
+                ? draft.AbilityPoints > 0 && score.Points < int.MaxValue
+                : change == -1 && score.Points > 0 && draft.AbilityPoints < int.MaxValue);
+
+        internal static bool TryAdjustAbility(CharacterDraft draft, CharacterAbilityScore score, int change)
         {
-            if (score == null || !CanAdjustAbility(draft, score, change))
+            if (!CanAdjustAbility(draft, score, change))
                 return false;
-            score.abilityScorePoint += change;
-            draft.abilityPoint -= change;
+            score.Points += change;
+            draft.AbilityPoints -= change;
             return true;
         }
 
-        internal static int AbilityModifier(CharacterData.AbilityScorePointsData score) => score == null ? 0
-            : (int)Math.Clamp((long)Math.Floor((score.abilityScorePoint - 10L) / 2.0)
-                + score.ablityModifierBonus, int.MinValue, int.MaxValue);
+        internal static int AbilityModifier(CharacterAbilityScore score) => score == null ? 0
+            : AbilityScoreValue.CalculateModifier(score.Points, score.Bonus);
 
-        internal bool CanChangeRace(CharacterData draft, Race race)
+        internal bool CanChangeRace(CharacterDraft draft, RaceDefinition race)
         {
-            var previous = Array.Find(Races, item => item.raceName == draft.raceName);
-            return draft.abilityScorePoints.All(ability => RaceAdjustedScore(ability, previous, race) is >= 0 and <= int.MaxValue);
+            var previous = draft.RaceId.Value == null ? null : Catalog.Race(draft.RaceId);
+            return draft.AbilityScores.All(ability => RaceAdjustedScore(ability, previous, race) is >= 0 and <= int.MaxValue);
         }
 
-        internal static int CalculateHp(CharacterData draft, int baseHp)
+        internal static int CalculateHp(CharacterDraft draft, int baseHp)
         {
-            var constitution = draft.abilityScorePoints.Find(ability => ability.abilityScoreName == "Constitution");
-            return (int)Math.Clamp(baseHp + (4L + AbilityModifier(constitution)) * draft.level, 1L, int.MaxValue);
+            var constitution = draft.Score(AbilityId.Constitution);
+            return (int)Math.Clamp(baseHp + (4L + AbilityModifier(constitution)) * draft.Level, 1L, int.MaxValue);
         }
 
-        internal void SetCatalog(CharacterData draft, Race race, CharacterClass characterClass)
+        internal void SetCatalog(CharacterDraft draft, RaceDefinition race, ClassDefinition characterClass)
         {
-            bool raceChanged = draft.raceName != race.raceName;
-            bool classChanged = draft.characterClassName != characterClass.className;
-            if (!raceChanged && !classChanged)
+            bool raceChanged = draft.RaceId != race.Id;
+            if (!raceChanged && draft.ClassId == characterClass.Id)
                 return;
 
             if (raceChanged)
             {
-                var previous = Array.Find(Races, item => item.raceName == draft.raceName);
-                foreach (var ability in draft.abilityScorePoints)
-                {
-                    ability.abilityScorePoint = (int)RaceAdjustedScore(ability, previous, race);
-                }
+                var previous = draft.RaceId.Value == null ? null : Catalog.Race(draft.RaceId);
+                if (!CanChangeRace(draft, race))
+                    throw new InvalidOperationException("Adjust your ability scores before changing to this race.");
+                foreach (var ability in draft.AbilityScores)
+                    ability.Points = (int)RaceAdjustedScore(ability, previous, race);
             }
 
-            draft.raceName = race.raceName;
-            draft.characterClassName = characterClass.className;
-            draft.skillData = (characterClass.classSkills ?? new List<Skill>())
-                .Concat(race.raceSkills ?? new List<Skill>()).Where(skill => skill).Distinct()
-                .Select(skill => new CharacterData.SkillData { skillName = skill.skillName, skillType = skill.skillType.ToString() })
-                .ToList();
-            draft.HP = CalculateHp(draft, characterClass.baseHP);
+            draft.RaceId = race.Id;
+            draft.ClassId = characterClass.Id;
+            draft.SkillIds = GrantedSkills(race, characterClass);
+            draft.Hp = CalculateHp(draft, characterClass.BaseHp);
         }
 
-        private static int Bonus(Race race, string ability) => race?.abilityScoreModifiers?
-            .Where(item => item.abilityScore && item.abilityScore.abilityName == ability).Sum(item => item.modifierPoints) ?? 0;
+        private static int Bonus(RaceDefinition race, AbilityId ability) =>
+            race != null && race.AbilityAdjustments.TryGetValue(ability, out var bonus) ? bonus : 0;
 
-        private static long RaceAdjustedScore(CharacterData.AbilityScorePointsData ability, Race previous, Race next) =>
-            (long)ability.abilityScorePoint + Bonus(next, ability.abilityScoreName) - Bonus(previous, ability.abilityScoreName);
+        private static long RaceAdjustedScore(CharacterAbilityScore ability, RaceDefinition previous, RaceDefinition next) =>
+            (long)ability.Points + Bonus(next, ability.Id) - Bonus(previous, ability.Id);
 
         internal static Vector3 BoardToWorld(Grid grid, Vector2 position)
         {

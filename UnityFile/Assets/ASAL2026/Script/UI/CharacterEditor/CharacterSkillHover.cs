@@ -31,15 +31,15 @@ namespace ASAL
                 return;
 
             int index = dropdown.value;
-            if (catalog == CatalogKind.Race && characters.Races != null && index >= 0 && index < characters.Races.Length)
+            if (catalog == CatalogKind.Race && index >= 0 && index < characters.Races.Count)
             {
                 var race = characters.Races[index];
-                Show(race.raceName, race.raceSkills);
+                Show(race.Label, race.Skills, characters.Catalog);
             }
-            else if (catalog == CatalogKind.Class && characters.Classes != null && index >= 0 && index < characters.Classes.Length)
+            else if (catalog == CatalogKind.Class && index >= 0 && index < characters.Classes.Count)
             {
                 var characterClass = characters.Classes[index];
-                Show(characterClass.className, characterClass.classSkills);
+                Show(characterClass.Label, characterClass.Skills, characters.Catalog);
             }
         }
 
@@ -47,7 +47,7 @@ namespace ASAL
 
         private void OnDisable() => Hide();
 
-        private void Show(string title, List<Skill> skills)
+        private void Show(string title, IReadOnlyList<SkillId> skills, RulesCatalog rules)
         {
             foreach (var row in rows)
             {
@@ -58,15 +58,11 @@ namespace ASAL
 
             detailPanel.SetActive(true);
             header.text = title;
-            if (skills == null)
-                return;
-
-            foreach (var skill in skills)
+            foreach (var skillId in skills)
             {
-                if (!skill)
-                    continue;
+                var skill = rules.Skill(skillId);
                 var row = Instantiate(rowPrefab, content);
-                row.SetUp(skill.skillName, skill.detail);
+                row.SetUp(skill.Label, skill.Detail);
                 rows.Add(row);
             }
         }

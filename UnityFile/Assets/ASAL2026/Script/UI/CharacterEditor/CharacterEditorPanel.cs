@@ -19,8 +19,8 @@ namespace ASAL
         [SerializeField] private Button back;
         [SerializeField] private RawImage portrait;
 
-        private CharacterData[] entries = Array.Empty<CharacterData>();
-        private CharacterData draft;
+        private CharacterDraft[] entries = Array.Empty<CharacterDraft>();
+        private CharacterDraft draft;
         private string existingId;
         private AccountProfile account;
         private string session;
@@ -37,7 +37,7 @@ namespace ASAL
         private bool IsAssignedCharacter => choose != null && existingId != null
             && existingId == RoomManager.Instance.SelectedCharacterId;
         internal RoomPhase OpeningPhase => phase;
-        internal CharacterData EditableDraft => !busy && Current ? draft : null;
+        internal CharacterDraft EditableDraft => !busy && Current && draft?.RepairError == null ? draft : null;
         private bool Current => this && account != null && ReferenceEquals(account, AuthManager.Instance?.CurrentAccount)
             && RoomManager.Instance && session == RoomManager.Instance.Session && phase == RoomManager.Instance.Phase;
 
@@ -57,9 +57,9 @@ namespace ASAL
             recordName.richText = false;
             recordName.textComponent.richText = false;
             race.ClearOptions();
-            race.AddOptions(Characters.Races.Select(item => item.raceName).ToList());
+            race.AddOptions(Characters.Races.Select(item => item.Label).ToList());
             characterClass.ClearOptions();
-            characterClass.AddOptions(Characters.Classes.Select(item => item.className).ToList());
+            characterClass.AddOptions(Characters.Classes.Select(item => item.Label).ToList());
             foreach (var dropdown in new[] { Records, race, characterClass })
             {
                 dropdown.captionText.richText = false;
@@ -90,7 +90,7 @@ namespace ASAL
                 return;
             if (layout.UsesTemplateDraft && dirty)
             {
-                Records.SetValueWithoutNotify(Array.FindIndex(entries, item => item.firebaseKey == existingId) + 1);
+                Records.SetValueWithoutNotify(Array.FindIndex(entries, item => item.RecordId == existingId) + 1);
                 Records.RefreshShownValue();
                 status.text = "Save your changes or use Reset before opening another record.";
                 return;
@@ -102,35 +102,29 @@ namespace ASAL
         {
             confirmDelete = false;
             dirty = false;
-            existingId = index == 0 ? null : entries[index - 1].firebaseKey;
+            existingId = index == 0 ? null : entries[index - 1].RecordId;
             draft = index == 0
                 ? (layout.UsesTemplateDraft ? Characters.NewRoomDraft(enemy) : Characters.NewDraft())
-                : Copy(entries[index - 1]);
-            draft.firebaseKey = existingId;
-            draft.abilityScorePoints ??= new List<CharacterData.AbilityScorePointsData>();
+                : entries[index - 1].Copy();
             if (index == 0 && !layout.UsesTemplateDraft)
                 Characters.SetCatalog(draft, Characters.Races[0], Characters.Classes[0]);
 
-            recordName.SetTextWithoutNotify(draft.characterName ?? string.Empty);
+            recordName.SetTextWithoutNotify(draft.Name ?? string.Empty);
             layout.LoadDraft(draft);
-            race.SetValueWithoutNotify(Math.Max(0, Array.FindIndex(Characters.Races, item => item.raceName == draft.raceName)));
-            race.RefreshShownValue();
-            characterClass.SetValueWithoutNotify(Math.Max(0, Array.FindIndex(Characters.Classes, item => item.className == draft.characterClassName)));
-            characterClass.RefreshShownValue();
+            SyncCatalogControls();
             RenderDraft();
-            status.text = string.Empty;
+            status.text = draft.RepairError ?? string.Empty;
             Controls();
         }
 
         private void ChangeCatalog()
         {
-            if (busy || !Current || draft == null)
+            if (EditableDraft == null)
                 return;
             var nextRace = Characters.Races[race.value];
-            if (!layout.PrepareCatalogChange(draft, nextRace))
+            if (!layout.PrepareCatalogChange(draft) || !Characters.CanChangeRace(draft, nextRace))
             {
-                race.SetValueWithoutNotify(Math.Max(0, Array.FindIndex(Characters.Races, item => item.raceName == draft.raceName)));
-                race.RefreshShownValue();
+                SyncCatalogControls();
                 status.text = "Adjust your ability scores before changing to this race.";
                 return;
             }
@@ -139,18 +133,24 @@ namespace ASAL
             MarkDirty();
         }
 
+        private void SyncCatalogControls()
+        {
+            race.SetValueWithoutNotify(Math.Max(0, Array.FindIndex(Characters.Races.ToArray(), item => item.Id == draft.RaceId)));
+            race.RefreshShownValue();
+            characterClass.SetValueWithoutNotify(Math.Max(0, Array.FindIndex(Characters.Classes.ToArray(), item => item.Id == draft.ClassId)));
+            characterClass.RefreshShownValue();
+        }
+
         private void RenderDraft()
         {
             layout.Render(draft);
-            var texture = Resources.Load<Texture>(
-                $"CharacterImages/{draft.raceName}/{draft.raceName}_{draft.characterClassName}");
+            var texture = draft.RepairError == null ? Characters.Catalog.Portrait(draft.RaceId, draft.ClassId) : null;
             portrait.texture = texture ? texture : defaultPortrait;
-
         }
 
         internal void UpdateDerivedStats()
         {
-            draft.HP = CharacterManager.CalculateHp(draft, Characters.Classes[characterClass.value].baseHP);
+            draft.Hp = CharacterManager.CalculateHp(draft, Characters.Classes[characterClass.value].BaseHp);
             RenderDraft();
             MarkDirty();
         }
@@ -165,16 +165,12 @@ namespace ASAL
 
         internal void ChooseSaved()
         {
-            if (Current && !busy && !dirty && existingId != null
-                && !choose(new SelectedCharacter(existingId, draft.characterName)))
+            if (!Current || busy || dirty || existingId == null || choose == null)
+                return;
+            if (Characters.Project(draft) == null)
+                status.text = draft.RepairError ?? "This saved character needs a valid level, HP, and ability scores before it can be selected.";
+            else if (!choose(new SelectedCharacter(existingId, draft.Name)))
                 status.text = "Could not select the character. Try again.";
-        }
-
-        private static CharacterData Copy(CharacterData record)
-        {
-            var copy = JsonUtility.FromJson<CharacterData>(JsonUtility.ToJson(record));
-            copy.firebaseKey = record.firebaseKey;
-            return copy;
         }
 
         private void Refresh(string preferredId = null) => Run("Loading saved records…", async () =>
@@ -188,12 +184,12 @@ namespace ASAL
                 LoadDraft(Records.value);
             status.text = entries.Length == 0
                 ? (enemy ? "No saved enemies. Edit the draft, then use Create Enemy." : "No saved characters. Edit the draft, then create a character.")
-                : string.Empty;
+                : draft.RepairError ?? string.Empty;
         }, enemy ? "Could not load monster templates. Check database access or reopen to retry." : "Could not load saved characters. Reopen to retry.");
 
         internal void Save()
         {
-            if (busy || !Current)
+            if (EditableDraft == null)
                 return;
             if (!layout.ReadForSave(draft))
             {
@@ -202,22 +198,22 @@ namespace ASAL
             }
 
             bool isNew = existingId == null;
-            draft.characterName = recordName.text;
+            draft.Name = recordName.text;
             Run("Saving…", async () =>
             {
                 await Characters.SaveAsync(account, enemy, draft);
                 if (!Current)
                     return;
-                entries = entries.Where(item => item.firebaseKey != draft.firebaseKey).Append(draft)
-                    .OrderBy(item => item.characterName, StringComparer.CurrentCulture)
-                    .ThenBy(item => item.firebaseKey, StringComparer.Ordinal).ToArray();
-                existingId = draft.firebaseKey;
+                entries = entries.Where(item => item.RecordId != draft.RecordId).Append(draft)
+                    .OrderBy(item => item.Name, StringComparer.CurrentCulture)
+                    .ThenBy(item => item.RecordId, StringComparer.Ordinal).ToArray();
+                existingId = draft.RecordId;
                 RenderIndex(existingId);
                 LoadDraft(Records.value);
                 status.text = "Saved.";
                 if (!isNew && updateSelection != null)
                 {
-                    var selection = new SelectedCharacter(existingId, draft.characterName);
+                    var selection = new SelectedCharacter(existingId, draft.Name);
                     if (!updateSelection(selection))
                         status.text = "Saved. Use Select to update the room.";
                 }
@@ -226,7 +222,7 @@ namespace ASAL
 
         private void Delete()
         {
-            if (busy || !Current || existingId == null || IsAssignedCharacter)
+            if (EditableDraft == null || existingId == null || IsAssignedCharacter)
                 return;
             if (!confirmDelete)
             {
@@ -241,7 +237,7 @@ namespace ASAL
                 await Characters.DeleteAsync(account, enemy, id);
                 if (!Current)
                     return;
-                entries = entries.Where(item => item.firebaseKey != id).ToArray();
+                entries = entries.Where(item => item.RecordId != id).ToArray();
                 RenderIndex(null);
                 LoadDraft(0);
                 status.text = "Record deleted.";
@@ -258,7 +254,7 @@ namespace ASAL
                 var counts = new Dictionary<string, int>(StringComparer.Ordinal) { [newLabel] = 1 };
                 foreach (var entry in entries)
                 {
-                    var name = entry.characterName;
+                    var name = entry.Name;
                     counts.TryGetValue(name, out var previous);
                     counts[name] = previous + 1;
                     labels.Add(previous == 0 ? name : $"{name} ({previous + 1})");
@@ -266,10 +262,10 @@ namespace ASAL
             }
             else
             {
-                labels.AddRange(entries.Select(item => item.characterName));
+                labels.AddRange(entries.Select(item => item.Name));
             }
             Records.AddOptions(labels);
-            Records.SetValueWithoutNotify(Array.FindIndex(entries, item => item.firebaseKey == selected) + 1);
+            Records.SetValueWithoutNotify(Array.FindIndex(entries, item => item.RecordId == selected) + 1);
             Records.RefreshShownValue();
         }
 
@@ -311,11 +307,12 @@ namespace ASAL
         private void Controls()
         {
             bool hasRecord = existingId != null;
+            bool canEdit = !busy && draft.RepairError == null;
             Records.interactable = !busy;
-            race.interactable = characterClass.interactable = recordName.interactable = !busy;
-            layout.SaveButton.interactable = !busy;
-            layout.DeleteButton.interactable = !busy && hasRecord && !IsAssignedCharacter;
-            layout.SetControls(draft, busy, hasRecord, choose != null, dirty);
+            race.interactable = characterClass.interactable = recordName.interactable = canEdit;
+            layout.SaveButton.interactable = canEdit;
+            layout.DeleteButton.interactable = canEdit && hasRecord && !IsAssignedCharacter;
+            layout.SetControls(draft, !canEdit, hasRecord, choose != null, dirty);
         }
     }
 }

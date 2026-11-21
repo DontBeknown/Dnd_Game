@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9990c113dc2392d0af294b92c033925e, type: 3}
+  m_Name: TurnUndead
+  m_EditorClassIdentifier:
+  id: turn-undead
+  label: "Turn undead"
+  legacyName: "Turn undead"
+  aliases: []
+  icon: {fileID: 0}
+  targetMode: 3
+  range: 5
+  requiredRace: {fileID: 11400000, guid: e71b7f31b1e9c7e954b9278c610c4fe3, type: 2}
+  actionCost: 1
+  maxDistinctTargets: 1
+  effects:
+  - kind: 2
+    ability: {fileID: 0}
+    hitDice: []
+    amountDice: []
+    criticalRaces: []
+    status: {fileID: 11400000, guid: ec65fdd3fd5a6c134fa1cf2f12aac003, type: 2}
+  category: 2
+  detail: "\u0E43\u0E0A\u0E49 1 action \u0E17\u0E33\u0E01\u0E32\u0E23\u0E2A\u0E48\u0E07\u0E2D\u0E31\u0E19\u0E40\u0E14\u0E15\u0E23\u0E2D\u0E1A\u0E15\u0E31\u0E27\u0E1C\u0E39\u0E49\u0E23\u0E48\u0E32\u0E22\u0E43\u0E19\u0E23\u0E30\u0E22\u0E30
+    5 m \u0E44\u0E1B\u0E40\u0E01\u0E34\u0E14\u0E43\u0E2B\u0E21\u0E48 \u0E42\u0E14\u0E22\u0E44\u0E21\u0E48\u0E2A\u0E19\u0E04\u0E48\u0E32\u0E2A\u0E16\u0E32\u0E19\u0E30\u0E43\u0E14
+    \u0E46"

@@ -1,0 +1,36 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9990c113dc2392d0af294b92c033925e, type: 3}
+  m_Name: Rage
+  m_EditorClassIdentifier:
+  id: rage
+  label: "Rage"
+  legacyName: "Rage"
+  aliases: []
+  icon: {fileID: 2800000, guid: afb0bdea525c4db40963140abc23fc30, type: 3}
+  targetMode: 0
+  range: 2147483647
+  requiredRace: {fileID: 0}
+  actionCost: 1
+  maxDistinctTargets: 1
+  effects:
+  - kind: 2
+    ability: {fileID: 0}
+    hitDice: []
+    amountDice: []
+    criticalRaces: []
+    status: {fileID: 11400000, guid: df448b1716a67693a874ec9dc7647595, type: 2}
+  category: 0
+  detail: "\tUse 1 action to enter a frenzy mode for 2 turns. While in this mode,
+    gain the following additional effects:   \t1. When attacking and hitting a target,
+    add extra damage equal to your STR Modifier.   \t2. When attacking, roll an additional
+    Hit Dice based on the attack's Hit Dice and include it in the calculation.  "
