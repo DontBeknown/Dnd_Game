@@ -11,28 +11,48 @@ namespace ASAL
     {
         private const int ChunkBytes = 8192;
         private const int MaxChunks = 128;
-        private const float ProposalTimeout = 12f;
+        private const int MaxMatchMessageLength = 8192;
+        private const int MaxCombatMessageLength = 128 * 1024;
+        private const float StartTimeout = 12f;
         private const float ResyncInterval = 3f;
+        private const float DragInterval = 0.05f;
+        private const float DragTimeout = 3f;
+        private const string Rejected = "Match action rejected. Check the current turn, target, or destination.";
 
         private readonly PhotonManager photon;
         private readonly RoomManager room;
         private readonly Dictionary<string, BuildingObjectBase> catalog;
-        private readonly Dictionary<string, Transfer> transfers = new();
-        private readonly Dictionary<string, MatchSnapshot> staged = new();
-        private readonly HashSet<string> commands = new();
-        private readonly Dictionary<int, float> snapshotRequests = new();
         private readonly Dictionary<int, (string RecordId, MatchCharacter Character)> characters = new();
-        private Proposal pending;
-        private float nextResync;
-        private string lastResyncProposal;
+        private readonly Dictionary<string, Drag> drags = new();
+        private readonly Dictionary<int, float> mapRequests = new();
+        private readonly HashSet<string> commands = new();
+        private readonly Dictionary<string, int> deferredHealth = new();
+        private readonly List<MatchLogEntry> publicLog = new();
+        private MatchMember[] starting;
+        private MatchMember[] members;
+        private CombatEncounter encounter;
+        private TilemapDataWrapper map;
+        private int mapRevision;
+        private int combatRevision;
+        private float startDeadline;
+        private float nextMapRequest;
+        private bool playRequested;
+        private bool dirty;
+        private Transfer mapTransfer;
+        private string mapTransferId;
         private string localRecordId;
         private MatchCharacter localCharacter;
         private float nextProjection;
         private bool projectionLoading;
-        private bool projectionSent;
+        private bool projectionInvalid;
+        private string localDragId;
+        private string localDragToken;
+        private float nextDrag;
+        private int dragStep;
         private bool disposed;
 
         internal MatchSnapshot Committed { get; private set; }
+        internal bool CanSubmit => room.CanLeave && photon.Playing && Committed != null;
         internal event Action<MatchSnapshot> Applied;
 
         internal MatchSession(PhotonManager photon, RoomManager room)
@@ -41,159 +61,260 @@ namespace ASAL
             this.room = room;
             catalog = MapManager.LoadBuildables();
             photon.MatchReceived += Receive;
+            photon.TokenViewsChanged += OnTokenViewsChanged;
         }
 
         internal void Dispose()
         {
             disposed = true;
             photon.MatchReceived -= Receive;
-            pending?.Completion.TrySetCanceled();
-            pending = null;
-            transfers.Clear();
-            staged.Clear();
-            commands.Clear();
-            snapshotRequests.Clear();
-            characters.Clear();
-            localCharacter = null;
+            photon.TokenViewsChanged -= OnTokenViewsChanged;
             Committed = null;
         }
 
-        internal void Start(TilemapDataWrapper map)
+        internal void Start(TilemapDataWrapper initialMap)
         {
-            if (!room.IsDm || pending != null)
+            if (!room.IsDm || room.Phase != RoomPhase.Starting)
                 return;
-            var snapshot = new MatchSnapshot
-            {
-                MatchId = room.Session, Revision = 1, Map = map, MapRevision = map == null ? 0 : 1,
-                Roster = room.Roster.Where(member => member.Active).Select(member => new MatchMember
-                {
-                    Actor = member.Actor, Name = member.Name,
-                    RecordId = member.CharacterId, CharacterName = member.CharacterName
-                }).ToArray(),
-                Tokens = Array.Empty<MatchToken>()
-            };
             try
             {
-                Stage(snapshot, null);
+                if (initialMap != null)
+                    ValidateMap(initialMap);
+                map = initialMap;
+                mapRevision = map == null ? 0 : 1;
+                starting = ReadMembers();
+                startDeadline = Time.unscaledTime + StartTimeout;
+                room.SetMatchStatus("Loading player characters…");
+                TryStartPlay();
             }
             catch (FormatException error)
             {
-                room.StartStagingFailed(error.Message);
+                FailStart(error.Message);
             }
         }
 
-        internal Task PublishAsync(TilemapDataWrapper map)
+        private MatchMember[] ReadMembers() => room.Roster.Where(member => member.Active).OrderBy(member => member.Actor)
+            .Select(member => new MatchMember
+            {
+                Actor = member.Actor, Name = member.Name, RecordId = member.CharacterId, CharacterName = member.CharacterName
+            }).ToArray();
+
+        private void TryStartPlay()
         {
-            if (!room.IsDm || Committed == null || pending != null || photon.MatchRevision != Committed.Revision)
-                throw new FormatException("Wait for the current match update before publishing.");
-            var next = Committed.Copy();
-            next.Revision++;
-            next.MapRevision++;
-            next.Map = map;
-            foreach (var token in next.Tokens)
-                token.Placed = token.Placed && MatchSnapshot.IsWalkable(map, token.Cell);
-            CombatManager.ReconcileMap(next);
-            return Stage(next, null).Completion.Task;
+            if (starting == null || room.Phase != RoomPhase.Starting || !room.CanLeave || photon.Playing)
+                return;
+            if (Time.unscaledTime >= startDeadline)
+            {
+                FailStart(playRequested ? "Photon did not confirm the match start."
+                    : "Could not load every player character. Check the selected characters and try again.");
+                return;
+            }
+            if (playRequested)
+                return;
+
+            var players = starting.Where(member => member.Actor != room.DmActor).ToArray();
+            if (players.Any(member => !characters.TryGetValue(member.Actor, out var saved)
+                || saved.RecordId != member.RecordId || saved.Character.Name != member.CharacterName
+                || !room.Roster.Any(player => player.Actor == member.Actor && player.Active && player.Ready
+                    && player.CharacterId == member.RecordId && player.CharacterName == member.CharacterName)))
+                return;
+
+            try
+            {
+                var mapBytes = map == null ? null : PackMap(map);
+                var board = UIManager.Instance.EnsurePlayBoard(map, mapRevision);
+                var center = new MatchSnapshot { Map = map }.BoardCenter();
+                foreach (var member in players)
+                {
+                    var character = characters[member.Actor].Character;
+                    Vector2 position = FindOpenPosition(board, center);
+                    var token = new MatchToken
+                    {
+                        Id = MatchSnapshot.PlayerTokenId(member.Actor), OwnerActor = member.Actor,
+                        RecordId = member.RecordId, Name = character.Name, Character = character,
+                        Hp = character.MaxHp, Placed = true, Position = position
+                    };
+                    if (!photon.SpawnToken(token, board.ToWorld(position)))
+                        throw new FormatException("Could not spawn a player token. Try starting again.");
+                }
+                if (mapBytes != null && !SendMap(Peers(), mapRevision, mapBytes))
+                    throw new FormatException("Could not send the starting map. Try starting again.");
+                if (!photon.PublishPlay(mapRevision))
+                    throw new FormatException("Could not start the match. Try again.");
+                members = starting;
+                playRequested = true;
+            }
+            catch (FormatException error)
+            {
+                FailStart(error.Message);
+            }
         }
 
-        internal void Submit(MatchCommand command, MatchToken enemy = null)
+        private void FailStart(string message)
         {
-            if (!room.CanLeave || Committed == null || photon.MatchRevision != Committed.Revision)
-                return;
-            command.MatchId = Committed.MatchId;
-            command.ExpectedRevision = Committed.Revision;
-            command.CommandId = Guid.NewGuid().ToString("N");
-            if (room.IsDm)
-                HandleCommand(photon.LocalActor, photon.LocalUser, command, enemy);
-            else if (!photon.SendMatch(new[] { room.DmActor }, "command", room.Session, JsonUtility.ToJson(command)))
-                room.SetMatchStatus("Could not send the match action. Try again.");
+            starting = null;
+            foreach (var id in photon.TokenViews.Keys.ToArray())
+                photon.DespawnToken(id);
+            room.StartStagingFailed(message);
         }
+
+        internal Task PublishAsync(TilemapDataWrapper nextMap)
+        {
+            if (!room.IsDm || !CanSubmit)
+                throw new FormatException("Wait for the match to start before publishing a map.");
+
+            ValidateMap(nextMap);
+            var bytes = PackMap(nextMap);
+            int nextRevision = mapRevision + 1;
+            var board = UIManager.Instance.EnsurePlayBoard(nextMap, nextRevision);
+            var occupied = photon.TokenViews.Values.OrderBy(view => view.Token.Id, StringComparer.Ordinal).ToArray();
+            var relocations = new List<(TokenView View, Vector2 Original)>();
+
+            try
+            {
+                foreach (var view in occupied)
+                {
+                    var token = view.Token;
+                    if (board.IsOpen(token.Position, token.Id))
+                        continue;
+                    Vector2 point = FindOpenPosition(board, token.Position);
+                    relocations.Add((view, token.Position));
+                    view.SetBoardPosition(board.ToWorld(point), point);
+                }
+                if (!SendMap(Peers(), nextRevision, bytes))
+                    throw new FormatException("Could not send the map. Try again.");
+            }
+            catch (FormatException)
+            {
+                UIManager.Instance.EnsurePlayBoard(map, mapRevision);
+                foreach (var (view, original) in relocations)
+                    view.SetBoardPosition(board.ToWorld(original), original);
+                throw;
+            }
+
+            map = nextMap;
+            mapRevision = nextRevision;
+            dirty = true;
+            Refresh();
+            return Task.CompletedTask;
+        }
+
+        private static Vector2 FindOpenPosition(PlayPanel board, Vector2 center)
+        {
+            if (board.IsOpen(center))
+                return center;
+            for (int ring = 1; ring <= 256; ring++)
+            {
+                for (int offset = -ring; offset <= ring; offset++)
+                {
+                    var lower = center + new Vector2(offset, -ring);
+                    if (board.IsOpen(lower))
+                        return lower;
+                    var upper = center + new Vector2(offset, ring);
+                    if (board.IsOpen(upper))
+                        return upper;
+                    if (Math.Abs(offset) == ring)
+                        continue;
+                    var left = center + new Vector2(-ring, offset);
+                    if (board.IsOpen(left))
+                        return left;
+                    var right = center + new Vector2(ring, offset);
+                    if (board.IsOpen(right))
+                        return right;
+                }
+            }
+            throw new FormatException("There is no clear space near the token.");
+        }
+
+        private void OnTokenViewsChanged() => dirty = true;
 
         internal void Refresh()
         {
-            if (!room.CanLeave)
+            if (!room.CanLeave || !photon.Playing || mapRevision < photon.InitialMapRevision)
+                return;
+            if (Committed == null)
+            {
+                members ??= ReadMembers();
+                if (room.Roster.Any(member => member.Active && member.Actor != room.DmActor
+                    && !photon.TokenViews.ContainsKey(MatchSnapshot.PlayerTokenId(member.Actor))))
+                    return;
+                starting = null;
+            }
+            else if (!dirty)
                 return;
 
-            var revision = photon.MatchRevision;
-            var proposal = photon.MatchProposal;
-            var snapshot = FindCommitted(staged, Committed?.Revision ?? 0, revision, proposal);
-            if (snapshot != null)
+            dirty = false;
+            foreach (var item in deferredHealth.ToArray())
             {
-                Committed = snapshot;
-                staged.Clear();
-                transfers.Clear();
-                lastResyncProposal = null;
-                if (pending != null && pending.Revision <= revision)
+                if (photon.TokenViews.TryGetValue(item.Key, out var view))
                 {
-                    var completed = pending;
-                    pending = null;
-                    if (completed.Id == proposal)
-                        completed.Completion.TrySetResult(true);
-                    else
-                        completed.Completion.TrySetException(new FormatException("Another update committed first. Try again."));
+                    if (item.Value <= view.Token.Character.MaxHp)
+                        view.UpdateHealth(item.Value);
+                    deferredHealth.Remove(item.Key);
                 }
-                Applied?.Invoke(snapshot);
             }
-            TryCommit();
-
-            if (!room.IsDm && revision > (Committed?.Revision ?? 0)
-                && (proposal != lastResyncProposal || Time.unscaledTime >= nextResync))
+            Committed = new MatchSnapshot
             {
-                lastResyncProposal = proposal;
-                nextResync = Time.unscaledTime + ResyncInterval;
-                photon.SendMatch(new[] { room.DmActor }, "snapshot", room.Session);
-            }
+                MatchId = room.Session, Revision = combatRevision, MapRevision = mapRevision, Map = map,
+                Roster = members, Tokens = photon.TokenViews.Values.Select(view => view.Token).ToArray(),
+                Encounter = encounter, PublicLog = publicLog.ToArray()
+            };
+            Applied?.Invoke(Committed);
         }
-
-        private static MatchSnapshot FindCommitted(Dictionary<string, MatchSnapshot> candidates, int appliedRevision,
-            int committedRevision, string proposal) =>
-            committedRevision > appliedRevision && !string.IsNullOrEmpty(proposal)
-                && candidates.TryGetValue(proposal, out var snapshot) && snapshot.Revision == committedRevision
-                ? snapshot : null;
 
         internal void Tick()
         {
-            Refresh();
-            ShareLocalCharacter();
-            if (pending == null)
-                return;
-            if (Time.unscaledTime >= pending.Expires)
-                FailProposal("Photon did not confirm the update. Try again.");
-            else if (!pending.CommitSent && pending.Fallback != null && Time.unscaledTime >= pending.Expires - 9f)
+            if (room.Phase == RoomPhase.Setup)
             {
-                // A peer missing the delta baseline can still stage the complete result.
-                var full = pending.Fallback;
-                pending.Fallback = null;
-                Send(Peers(), pending.Id, pending.Revision, "full", full);
+                starting = members = null;
+                map = null;
+                mapRevision = 0;
+                mapTransfer = null;
+                mapTransferId = null;
+                playRequested = false;
+                characters.Clear();
+                localRecordId = null;
+                return;
+            }
+            ShareLocalCharacter();
+            TryStartPlay();
+            if (!room.IsDm && photon.Playing && mapRevision < photon.InitialMapRevision && Time.unscaledTime >= nextMapRequest)
+            {
+                nextMapRequest = Time.unscaledTime + ResyncInterval;
+                photon.SendMatch(new[] { room.DmActor }, "map-request", room.Session);
+            }
+            Refresh();
+
+            foreach (var drag in drags.ToArray())
+            {
+                if (Time.unscaledTime >= drag.Value.Expires || !photon.TokenViews.ContainsKey(drag.Key)
+                    || !room.Roster.Any(member => member.Active && member.Actor == drag.Value.Actor))
+                    drags.Remove(drag.Key);
             }
         }
 
         private void ShareLocalCharacter()
         {
-            if (!room.CanLeave || room.IsDm || !room.LocalReady || string.IsNullOrEmpty(room.SelectedCharacterId))
+            if (!room.CanLeave || room.IsDm || room.Phase != RoomPhase.Starting || !room.LocalReady
+                || string.IsNullOrEmpty(room.SelectedCharacterId))
                 return;
-
-            if (room.Phase == RoomPhase.Setup)
-            {
-                localRecordId = null;
-                return;
-            }
 
             if (localRecordId != room.SelectedCharacterId)
             {
                 localRecordId = room.SelectedCharacterId;
                 localCharacter = null;
-                projectionSent = false;
+                projectionInvalid = false;
                 nextProjection = 0;
             }
-            if (projectionSent || projectionLoading || Time.unscaledTime < nextProjection)
+            if (projectionLoading || Time.unscaledTime < nextProjection)
                 return;
-            if (localCharacter == null)
+            if (localCharacter == null && !projectionInvalid)
                 LoadLocalCharacter(localRecordId, AuthManager.Instance.CurrentAccount);
             else if (room.DmActor > 0)
             {
-                projectionSent = photon.SendMatch(new[] { room.DmActor }, "character", room.Session,
-                    localRecordId, JsonUtility.ToJson(localCharacter));
+                var body = projectionInvalid ? string.Empty : JsonUtility.ToJson(localCharacter);
+                photon.SendMatch(new[] { room.DmActor }, "character", room.Session, localRecordId,
+                    body.Length <= MaxMatchMessageLength ? body : string.Empty);
                 nextProjection = Time.unscaledTime + ResyncInterval;
             }
         }
@@ -204,75 +325,131 @@ namespace ASAL
             try
             {
                 var records = await CharacterManager.Instance.LoadAsync(account, false);
-                if (!disposed && ReferenceEquals(account, AuthManager.Instance?.CurrentAccount) && recordId == localRecordId)
+                if (IsCurrentProjection(recordId, account))
                 {
-                    localCharacter = CharacterManager.Instance.Project(Array.Find(records, record => record.firebaseKey == recordId));
-                    if (localCharacter == null)
+                    localCharacter = CharacterManager.Instance.Project(Array.Find(records, record => record?.firebaseKey == recordId));
+                    projectionInvalid = localCharacter == null;
+                    if (projectionInvalid)
                         room.SetMatchStatus("The selected character has invalid or missing gameplay data. Select a saved character again.");
                 }
             }
             catch (Exception)
             {
-                if (!disposed && ReferenceEquals(account, AuthManager.Instance?.CurrentAccount) && recordId == localRecordId)
+                if (IsCurrentProjection(recordId, account))
                     room.SetMatchStatus("Could not load the selected character for play. Retrying.");
             }
             finally
             {
                 projectionLoading = false;
-                if (recordId == localRecordId && localCharacter == null)
+                if (IsCurrentProjection(recordId, account) && localCharacter == null && !projectionInvalid)
                     nextProjection = Time.unscaledTime + ResyncInterval;
             }
         }
 
-        private Proposal Stage(MatchSnapshot snapshot, MatchDelta delta)
-        {
-            Validate(snapshot);
-            var full = Pack(JsonUtility.ToJson(snapshot));
-            var data = delta == null ? full : Pack(JsonUtility.ToJson(delta));
-            var id = Guid.NewGuid().ToString("N");
-            staged.Add(id, snapshot);
-            var proposal = new Proposal(id, snapshot.Revision, Time.unscaledTime + ProposalTimeout);
-            // Only publication has a caller awaiting the result.
-            proposal.Completion.Task.ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted);
-            pending = proposal;
-            if (delta != null)
-                proposal.Fallback = full;
-            if (!Send(Peers(), id, snapshot.Revision, delta == null ? "full" : "delta", data))
-                FailProposal("Could not send the match update. Try again.");
-            else
-                TryCommit();
-            return proposal;
-        }
+        private bool IsCurrentProjection(string recordId, AccountProfile account) => !disposed
+            && room.Phase == RoomPhase.Starting && recordId == localRecordId
+            && ReferenceEquals(account, AuthManager.Instance?.CurrentAccount);
 
-        private void TryCommit()
+
+        internal void Submit(MatchCommand command, MatchToken enemy = null)
         {
-            if (pending == null || pending.CommitSent || !room.IsDm || !room.CanLeave)
+            if (!CanSubmit)
+            {
+                room.SetMatchStatus("Wait for the match to start.");
                 return;
-            var peers = Peers();
-            if (peers.Length > 0 && !peers.Any(pending.Acknowledged.Contains))
-                return;
-            if (photon.CommitMatch(pending.Revision, pending.Id))
-                pending.CommitSent = true;
-            else
-                FailProposal("Could not commit the match update. Try again.");
+            }
+            command.MatchId = room.Session;
+            command.ExpectedRevision = combatRevision;
+            command.CommandId = Guid.NewGuid().ToString("N");
+            if (room.IsDm)
+                HandleCommand(photon.LocalActor, photon.LocalUser, command, enemy);
+            else if (!photon.SendMatch(new[] { room.DmActor }, "command", room.Session, JsonUtility.ToJson(command)))
+                room.SetMatchStatus("Could not send the match action. Try again.");
         }
 
-        private int[] Peers() => room.Roster.Where(member => member.Active && member.Actor != photon.LocalActor)
-            .Select(member => member.Actor).ToArray();
-
-        private void FailProposal(string message)
+        internal void BeginDrag(string id)
         {
-            var failed = pending;
-            pending = null;
-            // Retain the staged candidate if a commit request is already in flight.
-            if (!failed.CommitSent)
-                staged.Remove(failed.Id);
-            failed.Completion.TrySetException(new FormatException(message));
-            if (failed.Revision == 1)
-                room.StartStagingFailed(message);
-            else
-                room.SetMatchStatus(message);
+            if (!CanSubmit)
+                return;
+            localDragToken = id;
+            localDragId = Guid.NewGuid().ToString("N");
+            nextDrag = 0;
+            dragStep = 0;
+            SendDrag("drag-begin", id, Vector2.zero);
         }
+
+        internal void DragTo(string id, Vector2 point)
+        {
+            if (id != localDragToken || Time.unscaledTime < nextDrag)
+                return;
+            nextDrag = Time.unscaledTime + DragInterval;
+            SendDrag("drag-move", id, point);
+        }
+
+        internal void EndDrag(string id, Vector2 point)
+        {
+            FinishDrag("drag-end", id, point);
+        }
+
+        internal void CancelDrag(string id)
+        {
+            FinishDrag("drag-cancel", id, Vector2.zero);
+        }
+
+        private void FinishDrag(string kind, string id, Vector2 point)
+        {
+            if (id != localDragToken)
+                return;
+            SendDrag(kind, id, point);
+            localDragToken = localDragId = null;
+        }
+
+        private void SendDrag(string kind, string id, Vector2 point)
+        {
+            if (!CanSubmit)
+                return;
+            int step = dragStep++;
+            if (room.IsDm)
+            {
+                HandleDrag(photon.LocalActor, photon.LocalUser, kind, id, localDragId, step, point);
+                return;
+            }
+            var payload = new object[] { kind, room.Session, id, localDragId, step, point };
+            if (kind == "drag-move")
+                photon.SendDrag(room.DmActor, payload);
+            else if (!photon.SendMatch(new[] { room.DmActor }, payload))
+                room.SetMatchStatus("Could not send the token movement.");
+        }
+
+        internal static bool CanDragToken(int actor, bool dm, int ownerActor) =>
+            actor > 0 && (dm || ownerActor == actor);
+
+        private void HandleDrag(int actor, string user, string kind, string id, string dragId, int step, Vector2 point)
+        {
+            bool dm = room.IsDmIdentity(actor, user);
+            if (!CanSubmit || !IsActive(actor, user) || !Guid.TryParseExact(dragId, "N", out _)
+                || !photon.TokenViews.TryGetValue(id, out var view) || !CanDragToken(actor, dm, view.Token.OwnerActor))
+                return;
+            if (kind == "drag-begin")
+            {
+                if (step == 0 && (dm || !drags.TryGetValue(id, out var existing) || existing.Actor == actor))
+                    drags[id] = new Drag(actor, dragId, step, Time.unscaledTime + DragTimeout);
+                return;
+            }
+            if (!drags.TryGetValue(id, out var drag) || drag.Actor != actor || drag.Id != dragId || step <= drag.Step)
+                return;
+
+            if (kind is "drag-end" or "drag-cancel")
+                drags.Remove(id);
+            else
+                drags[id] = new Drag(actor, dragId, step, Time.unscaledTime + DragTimeout);
+
+            if (kind is "drag-move" or "drag-end")
+                UIManager.Instance.EnsurePlayBoard(map, mapRevision).TryMoveToken(id, point, out _);
+        }
+
+        private bool IsActive(int actor, string user) =>
+            room.Roster.Any(member => member.Active && member.Actor == actor && member.UserId == user);
 
         private void Receive(int actor, string user, object[] data)
         {
@@ -280,73 +457,95 @@ namespace ASAL
                 || session != room.Session)
                 return;
 
+            bool dm = room.IsDmIdentity(actor, user);
             try
             {
                 switch (kind)
                 {
-                    case "chunk" when room.IsDmIdentity(actor, user):
-                        ReceiveChunk(data);
+                    case "map" when dm:
+                        ReceiveMap(data);
                         break;
-                    case "ack" when room.IsDm && pending != null && data.Length == 4
-                        && data[2] is string id && id == pending.Id && data[3] is int revision && revision == pending.Revision:
-                        pending.Acknowledged.Add(actor);
-                        TryCommit();
+                    case "map-request" when room.IsDm && CanSubmit && map != null && IsActive(actor, user):
+                        if (!mapRequests.TryGetValue(actor, out var deadline) || Time.unscaledTime >= deadline)
+                        {
+                            mapRequests[actor] = Time.unscaledTime + ResyncInterval;
+                            SendMap(new[] { actor }, mapRevision, PackMap(map));
+                        }
                         break;
-                    case "snapshot" when room.IsDm && Committed != null && photon.MatchRevision == Committed.Revision:
-                        if (snapshotRequests.TryGetValue(actor, out var deadline) && Time.unscaledTime < deadline)
-                            break;
-                        snapshotRequests[actor] = Time.unscaledTime + ResyncInterval - 0.25f;
-                        Send(new[] { actor }, photon.MatchProposal, Committed.Revision, "full", Pack(JsonUtility.ToJson(Committed)));
+                    case "combat" when dm && data.Length == 3 && data[2] is string combat
+                        && combat.Length <= MaxCombatMessageLength:
+                        ApplyCombat(JsonUtility.FromJson<CombatUpdate>(combat));
                         break;
-                    case "command" when room.IsDm && data.Length == 3 && data[2] is string json && json.Length <= 2048:
+                    case "command" when room.IsDm && data.Length == 3 && data[2] is string json
+                        && json.Length <= MaxMatchMessageLength:
                         HandleCommand(actor, user, JsonUtility.FromJson<MatchCommand>(json), null);
                         break;
-                    case "character" when room.IsDm && data.Length == 4
-                        && data[2] is string recordId && data[3] is string body && body.Length <= 2048:
-                        ReceiveCharacter(actor, user, recordId, JsonUtility.FromJson<MatchCharacter>(body));
+                    case "character" when room.IsDm && room.Phase == RoomPhase.Starting && data.Length == 4
+                        && data[2] is string recordId && data[3] is string body && body.Length <= MaxMatchMessageLength:
+                        ReceiveCharacter(actor, user, recordId, body.Length == 0 ? null : JsonUtility.FromJson<MatchCharacter>(body));
                         break;
-                    case "rejected" when room.IsDmIdentity(actor, user):
-                        room.SetMatchStatus("Match action rejected. Check the current turn, target, or destination.");
+                    case "drag-begin" or "drag-move" or "drag-end" or "drag-cancel" when room.IsDm
+                        && data.Length == 6 && data[2] is string id && data[3] is string dragId
+                        && data[4] is int step && data[5] is Vector2 point:
+                        HandleDrag(actor, user, kind, id, dragId, step, point);
+                        break;
+                    case "rejected" when dm:
+                        room.SetMatchStatus(Rejected);
                         break;
                 }
             }
             catch (Exception error) when (error is FormatException or ArgumentException)
             {
-                // Discard malformed transient messages. The commit check requests a fresh snapshot.
+                // Drop malformed room messages without applying partial state.
             }
         }
 
         private void ReceiveCharacter(int actor, string user, string recordId, MatchCharacter character)
         {
-            if (!room.Roster.Any(member => member.Active && member.Ready && member.Actor == actor && member.UserId == user
-                    && member.CharacterId == recordId && member.CharacterName == character?.Name)
-                || !CharacterManager.Instance.ValidProjection(character))
+            var member = room.Roster.FirstOrDefault(player => player.Active && player.Ready && player.Actor == actor
+                && player.UserId == user && player.CharacterId == recordId);
+            if (starting == null || member == null || room.IsDmIdentity(actor, user))
                 return;
-            if (Committed == null || !Committed.Tokens.Any(token => token.OwnerActor == actor && token.RecordId == recordId))
-                characters[actor] = (recordId, character);
+            if (member.CharacterName != character?.Name || !CharacterManager.Instance.ValidProjection(character))
+            {
+                starting = null;
+                room.StartStagingFailed($"Could not load {member.Name}'s selected character. Ask them to select a saved character again.");
+                return;
+            }
+            characters[actor] = (recordId, character);
+            TryStartPlay();
         }
+
 
         private void HandleCommand(int actor, string user, MatchCommand command, MatchToken enemy)
         {
-            bool dm = room.IsDmIdentity(actor, user);
-            if (Committed == null || pending != null || photon.MatchRevision != Committed.Revision
-                || !room.Roster.Any(member => member.Active && member.Actor == actor && member.UserId == user)
-                || command == null || command.MatchId != Committed.MatchId || command.ExpectedRevision != Committed.Revision
-                || !Guid.TryParseExact(command.CommandId, "N", out _) || commands.Contains(command.CommandId))
+            if (!CanSubmit || !IsActive(actor, user) || command == null || command.MatchId != room.Session
+                || command.ExpectedRevision != combatRevision || !Guid.TryParseExact(command.CommandId, "N", out _)
+                || commands.Contains(command.CommandId))
             {
                 Reject(actor);
                 return;
             }
 
+            Refresh();
+            bool dm = room.IsDmIdentity(actor, user);
             MatchLogEntry privateReport = null;
             MatchDelta delta;
-            if (command.Action is MatchAction.Place or MatchAction.Move)
+            if (command.Action == MatchAction.Place)
             {
-                if (!TryPlaceOrMove(actor, dm, command, enemy, out delta))
+                if (!dm || actor != photon.LocalActor || enemy == null || enemy.OwnerActor != 0
+                    || command.TokenId != enemy.Id || command.RecordId != enemy.RecordId
+                    || !Guid.TryParseExact(enemy.Id, "N", out _) || photon.TokenViews.ContainsKey(enemy.Id)
+                    || !CharacterManager.Instance.ValidProjection(enemy.Character)
+                    || !UIManager.Instance.EnsurePlayBoard(map, mapRevision).IsOpen(command.Position))
                 {
                     Reject(actor);
                     return;
                 }
+                enemy = enemy.At(command.Position);
+                enemy.Hp = enemy.Character.MaxHp;
+                delta = new MatchDelta { Token = enemy };
+                CombatManager.ResolvePlacement(Committed, command, delta);
             }
             else if (!CombatManager.Instance.TryResolve(Committed, command, actor, dm, out delta, out privateReport))
             {
@@ -354,204 +553,200 @@ namespace ASAL
                 return;
             }
 
+            bool placing = command.Action == MatchAction.Place;
+            var health = delta.ChangedTokens ?? Array.Empty<MatchToken>();
+            if (!placing && delta.Token != null)
+                health = health.Append(delta.Token).ToArray();
+
+            bool hasCombatUpdate = delta.EncounterChanged || delta.Log != null || health.Length > 0;
+            var update = hasCombatUpdate ? new CombatUpdate
+            {
+                Revision = combatRevision + 1, EncounterChanged = delta.EncounterChanged, Encounter = delta.Encounter,
+                Health = health.Select(token => new HealthChange { Id = token.Id, Hp = token.Hp }).ToArray(), Log = delta.Log
+            } : null;
+            var payload = update == null ? null : JsonUtility.ToJson(update);
+            if (payload?.Length > MaxCombatMessageLength)
+            {
+                Reject(actor);
+                return;
+            }
+
+            if (placing && !photon.SpawnToken(enemy, UIManager.Instance.EnsurePlayBoard(map, mapRevision).ToWorld(command.Position)))
+            {
+                Reject(actor);
+                return;
+            }
+            if (update != null && !photon.SendMatch(Peers(), "combat", room.Session, payload))
+            {
+                if (placing)
+                    photon.DespawnToken(enemy.Id);
+                room.SetMatchStatus("Could not send the combat update. Try again.");
+                return;
+            }
             commands.Add(command.CommandId);
-            try
-            {
-                var proposal = Stage(delta.Apply(Committed), delta);
-                if (privateReport != null)
-                    ReportPrivateAfterCommit(proposal.Completion.Task, privateReport);
-            }
-            catch (FormatException error) { room.SetMatchStatus(error.Message); }
+            if (delta.RemovedTokenId != null)
+                photon.DespawnToken(delta.RemovedTokenId);
+            if (update != null)
+                ApplyCombat(update);
+            Refresh();
+            if (privateReport != null)
+                DiceManager.Instance.ReportPrivate(privateReport.Text, privateReport.Roll);
         }
 
-        private bool TryPlaceOrMove(int actor, bool dm, MatchCommand command, MatchToken enemy, out MatchDelta delta)
+        private void ApplyCombat(CombatUpdate update)
         {
-            delta = null;
-            if (!Committed.TryApply(command, actor, dm, out var token))
+            if (update?.Revision != combatRevision + 1)
+                return;
+            var nextEncounter = update.Encounter?.Round > 0 ? update.Encounter : null;
+            var log = string.IsNullOrEmpty(update.Log?.Id) ? null : update.Log;
+            if (nextEncounter != null && !IsValidEncounter(nextEncounter)
+                || log != null && (!Guid.TryParseExact(log.Id, "N", out _) || string.IsNullOrEmpty(log.Text)
+                    || !ValidRoll(log.Roll, log.Id))
+                || update.Health?.Any(change => change == null || string.IsNullOrEmpty(change.Id) || change.Hp < 0
+                    || photon.TokenViews.TryGetValue(change.Id, out var view) && change.Hp > view.Token.Character.MaxHp) == true)
+                return;
+
+            combatRevision = update.Revision;
+            foreach (var change in update.Health ?? Array.Empty<HealthChange>())
             {
-                if (!dm || actor != photon.LocalActor || enemy == null || command.Action != MatchAction.Place
-                    || command.TokenId != enemy.Id || command.RecordId != enemy.RecordId || enemy.OwnerActor != 0
-                    || !Guid.TryParseExact(enemy.Id, "N", out _) || Committed.Tokens.Any(item => item.Id == enemy.Id)
-                    || !Committed.IsAvailableCell(command.Cell)
-                    || !CharacterManager.Instance.ValidProjection(enemy.Character))
-                    return false;
-                token = enemy.At(command.Cell);
+                if (photon.TokenViews.TryGetValue(change.Id, out var view))
+                    view.UpdateHealth(change.Hp);
+                else
+                    deferredHealth[change.Id] = change.Hp;
             }
-            if (token.Character == null)
+            if (update.EncounterChanged)
             {
-                if (!characters.TryGetValue(token.OwnerActor, out var saved) || saved.RecordId != token.RecordId)
-                    return false;
-                token.Character = saved.Character;
+                if (nextEncounter != null && string.IsNullOrEmpty(nextEncounter.ActiveTokenId))
+                    nextEncounter.ActiveTokenId = null;
+                encounter = nextEncounter;
             }
-            if (!Committed.Tokens.Any(item => item.Id == token.Id))
-                token.Hp = token.Character.MaxHp;
-            delta = new MatchDelta { MatchId = Committed.MatchId, Revision = Committed.Revision + 1, Token = token };
-            return CombatManager.TryMove(Committed, command, delta, actor, dm);
+            if (log != null)
+            {
+                if (string.IsNullOrEmpty(log.Roll?.Id))
+                    log.Roll = null;
+                if (publicLog.Count >= 40)
+                    publicLog.RemoveAt(0);
+                publicLog.Add(log);
+            }
+            dirty = true;
         }
 
-        private async void ReportPrivateAfterCommit(Task<bool> completion, MatchLogEntry report)
-        {
-            try
-            {
-                await completion;
-                if (!disposed && room.IsDm && room.CanLeave)
-                    DiceManager.Instance?.ReportPrivate(report.Text, report.Roll);
-            }
-            catch (Exception error) when (error is OperationCanceledException or FormatException)
-            {
-                // Rejected or expired proposals produced no visible outcome.
-            }
-        }
+        private static bool IsValidEncounter(CombatEncounter value) =>
+            value.TurnOrder != null && value.TurnOrder.All(entry => entry != null
+                && !string.IsNullOrEmpty(entry.TokenId) && entry.Hp >= 0 && entry.Initiative is >= 1 and <= 20
+                && entry.ActionsLeft is >= 0 and <= 1 && entry.Statuses != null
+                && entry.Statuses.All(status => status != null && !string.IsNullOrEmpty(status.Name))
+                && entry.MultiShotTargets is { Length: <= 3 })
+            && value.TurnOrder.Select(entry => entry.TokenId).Distinct().Count() == value.TurnOrder.Length
+            && (string.IsNullOrEmpty(value.ActiveTokenId) || value.Find(value.ActiveTokenId)?.Hp > 0);
+
+        private static bool ValidRoll(MatchRoll roll, string id) => roll == null || string.IsNullOrEmpty(roll.Id)
+            || roll.Id == id && roll.Sides is { Length: > 0 } && roll.Faces != null
+            && roll.Sides.Length == roll.Faces.Length
+            && roll.Sides.Zip(roll.Faces, (sides, face) => sides <= 20 && face >= 1 && face <= sides).All(valid => valid)
+            && roll.Faces.Sum() == roll.Total;
 
         private void Reject(int actor)
         {
             if (actor == photon.LocalActor)
-                room.SetMatchStatus("Match action rejected. Check the current turn, target, or destination.");
+                room.SetMatchStatus(Rejected);
             else
                 photon.SendMatch(new[] { actor }, "rejected", room.Session);
         }
 
-        private static byte[] Pack(string json)
+        private int[] Peers() => room.Roster.Where(member => member.Active && member.Actor != photon.LocalActor)
+            .Select(member => member.Actor).ToArray();
+
+        private static byte[] PackMap(TilemapDataWrapper nextMap)
         {
-            var bytes = Encoding.UTF8.GetBytes(json);
+            var bytes = Encoding.UTF8.GetBytes(JsonUtility.ToJson(nextMap));
             if (bytes.Length == 0 || bytes.Length > ChunkBytes * MaxChunks)
-                throw new FormatException("This match update exceeds the transfer limit.");
+                throw new FormatException("The map exceeds the transfer limit.");
             return bytes;
         }
 
-        private bool Send(int[] peers, string id, int revision, string form, byte[] bytes)
+        private bool SendMap(int[] peers, int revision, byte[] bytes)
         {
             if (peers.Length == 0)
                 return true;
-
+            var id = Guid.NewGuid().ToString("N");
             int count = (bytes.Length + ChunkBytes - 1) / ChunkBytes;
             for (int index = 0; index < count; index++)
             {
                 var chunk = bytes.AsSpan(index * ChunkBytes, Math.Min(ChunkBytes, bytes.Length - index * ChunkBytes)).ToArray();
-                if (!photon.SendMatch(peers, "chunk", room.Session, id, revision, form, index, count, chunk))
+                if (!photon.SendMatch(peers, "map", room.Session, id, revision, index, count, chunk))
                     return false;
             }
             return true;
         }
 
-        private void ReceiveChunk(object[] data)
+        private void ReceiveMap(object[] data)
         {
-            if (data.Length != 8 || data[2] is not string id || !Guid.TryParseExact(id, "N", out _)
-                || data[3] is not int revision || revision <= (Committed?.Revision ?? 0) || revision > photon.MatchRevision + 1
-                || data[4] is not string form || form is not ("full" or "delta")
-                || data[5] is not int index || data[6] is not int count || data[7] is not byte[] bytes
-                || count < 1 || count > MaxChunks || index < 0 || index >= count || bytes.Length == 0
-                || bytes.Length > ChunkBytes || (index < count - 1 && bytes.Length != ChunkBytes))
+            if (room.Phase == RoomPhase.Setup || data.Length != 7 || data[2] is not string id
+                || !Guid.TryParseExact(id, "N", out _) || data[3] is not int revision || revision <= mapRevision
+                || data[4] is not int index || data[5] is not int count || data[6] is not byte[] bytes
+                || count < 1 || count > MaxChunks || index < 0 || index >= count
+                || bytes.Length == 0 || bytes.Length > ChunkBytes || index < count - 1 && bytes.Length != ChunkBytes)
                 return;
-
-            var key = id + form;
-            if (!transfers.TryGetValue(key, out var transfer))
+            if (mapTransferId != id)
             {
-                if (transfers.Count >= 4)
-                    transfers.Clear();
-                transfer = new Transfer(revision, count);
-                transfers.Add(key, transfer);
+                if (mapTransfer != null && mapTransfer.Revision > revision)
+                    return;
+                mapTransfer = new Transfer(revision, count);
+                mapTransferId = id;
             }
+            var transfer = mapTransfer;
             if (transfer.Revision != revision || transfer.Chunks.Length != count || !transfer.Add(index, bytes))
                 return;
+            mapTransfer = null;
+            mapTransferId = null;
 
-            transfers.Remove(key);
-            var json = Encoding.UTF8.GetString(transfer.Chunks.SelectMany(chunk => chunk).ToArray());
-            MatchSnapshot snapshot;
-            if (form == "delta")
-            {
-                var delta = JsonUtility.FromJson<MatchDelta>(json);
-                if (Committed == null || delta == null || revision != Committed.Revision + 1
-                    || delta.MatchId != room.Session || delta.Revision != revision
-                    || delta.ChangedTokens?.Any(change => change == null || !Committed.Tokens.Any(token => token.Id == change.Id)) == true)
-                    return;
-                snapshot = delta.Apply(Committed);
-            }
-            else
-                snapshot = JsonUtility.FromJson<MatchSnapshot>(json);
-
-            if (snapshot?.Revision != revision || snapshot.MatchId != room.Session)
-                return;
-            snapshot.NormalizeOptional();
-            Validate(snapshot);
-            if (staged.Count >= 4)
-                staged.Clear();
-            staged[id] = snapshot;
-            if (revision > photon.MatchRevision)
-                photon.SendMatch(new[] { room.DmActor }, "ack", room.Session, id, revision);
-            Refresh();
+            var nextMap = JsonUtility.FromJson<TilemapDataWrapper>(
+                Encoding.UTF8.GetString(transfer.Chunks.SelectMany(chunk => chunk).ToArray()));
+            ValidateMap(nextMap);
+            mapRevision = revision;
+            map = nextMap;
+            dirty = true;
         }
 
-        private void Validate(MatchSnapshot snapshot)
+        private void ValidateMap(TilemapDataWrapper nextMap)
         {
-            if (snapshot.Roster == null || snapshot.Tokens == null || snapshot.MapRevision < 0
-                || snapshot.MapRevision > snapshot.Revision
-                || snapshot.Roster.Length > 5 || snapshot.Roster.Any(member => member == null || member.Actor < 1)
-                || snapshot.Roster.Select(member => member.Actor).Distinct().Count() != snapshot.Roster.Length
-                || snapshot.Tokens.Any(token => token == null || string.IsNullOrEmpty(token.Id)
-                    || !CharacterManager.Instance.ValidProjection(token.Character) || token.Hp < 0 || token.Hp > token.Character.MaxHp)
-                || snapshot.Tokens.Select(token => token.Id).Distinct().Count() != snapshot.Tokens.Length)
-                throw new FormatException("Invalid match snapshot.");
-
-            if (snapshot.MapRevision == 0)
-                snapshot.Map = null;
-            else if (snapshot.Map?.tilemapDataList == null
-                || snapshot.Map.tilemapDataList.Any(layer => layer == null || string.IsNullOrEmpty(layer.key)
-                    || layer.tiles == null || layer.tiles.Any(tile => tile == null || tile.position.z != 0
-                        || string.IsNullOrEmpty(tile.guidForBuildable)
-                        || !catalog.TryGetValue(tile.guidForBuildable, out var item) || item is BuildingTool))
-                || !snapshot.Map.tilemapDataList.Where(layer => layer.key == "Tilemap_Floor")
-                    .SelectMany(layer => layer.tiles).Any(tile => MatchSnapshot.IsWalkable(snapshot.Map, tile.position)))
-                throw new FormatException("A playable map needs a walkable floor and valid tiles.");
-
-            if (snapshot.Tokens.Any(token => token.Placed && !MatchSnapshot.IsWalkable(snapshot.Map, token.Cell)))
-                throw new FormatException("A token is outside the playable map.");
-            if (snapshot.Tokens.Where(token => token.Placed).GroupBy(token => token.Cell).Any(cell => cell.Count() > 1))
-                throw new FormatException("Two tokens occupy the same cell.");
-            ValidateCombat(snapshot);
+            if (nextMap?.tilemapDataList == null || nextMap.tilemapDataList.Any(layer => layer == null
+                || string.IsNullOrEmpty(layer.key) || layer.tiles == null || layer.tiles.Any(tile => tile == null
+                    || tile.position.z != 0 || string.IsNullOrEmpty(tile.guidForBuildable)
+                    || !catalog.TryGetValue(tile.guidForBuildable, out var item) || item is BuildingTool)))
+                throw new FormatException("The map contains invalid tiles.");
         }
 
-        private static void ValidateCombat(MatchSnapshot snapshot)
+        [Serializable]
+        private sealed class CombatUpdate
         {
-            var log = snapshot.PublicLog ?? Array.Empty<MatchLogEntry>();
-            if (log.Length > 40 || log.Any(entry => entry == null || !Guid.TryParseExact(entry.Id, "N", out _)
-                    || string.IsNullOrEmpty(entry.Text) || !ValidRoll(entry.Roll, entry.Id))
-                || log.Select(entry => entry.Id).Distinct().Count() != log.Length)
-                throw new FormatException("Invalid match log.");
-
-            var encounter = snapshot.Encounter;
-            if (encounter == null)
-                return;
-            if (encounter.Round < 1 || encounter.TurnOrder == null
-                || encounter.TurnOrder.Any(entry => entry == null || !snapshot.Tokens.Any(token => token.Id == entry.TokenId
-                        && token.Placed && token.Hp == entry.Hp) || entry.Initiative is < 1 or > 20
-                    || entry.ActionsLeft is < 0 or > 1 || entry.MoveLeft is < 0 or > 7 || entry.Statuses == null
-                    || entry.Statuses.Any(status => status == null || string.IsNullOrEmpty(status.Name))
-                    || entry.MultiShotTargets == null || entry.MultiShotTargets.Length > 3)
-                || encounter.TurnOrder.Select(entry => entry.TokenId).Distinct().Count() != encounter.TurnOrder.Length
-                || !string.IsNullOrEmpty(encounter.ActiveTokenId) && encounter.Find(encounter.ActiveTokenId)?.Hp is not > 0)
-                throw new FormatException("Invalid encounter state.");
+            public int Revision;
+            public HealthChange[] Health;
+            public bool EncounterChanged;
+            public CombatEncounter Encounter;
+            public MatchLogEntry Log;
         }
 
-        private static bool ValidRoll(MatchRoll roll, string id) => roll == null || roll.Id == id
-            && roll.Sides is { Length: > 0 } && roll.Faces != null && roll.Sides.Length == roll.Faces.Length
-            && roll.Sides.Zip(roll.Faces, (sides, face) => sides <= 20 && face >= 1 && face <= sides).All(valid => valid)
-            && roll.Faces.Sum() == roll.Total;
-
-        private sealed class Proposal
+        [Serializable]
+        private sealed class HealthChange
         {
+            public string Id;
+            public int Hp;
+        }
+
+        private readonly struct Drag
+        {
+            internal readonly int Actor;
             internal readonly string Id;
-            internal readonly int Revision;
+            internal readonly int Step;
             internal readonly float Expires;
-            internal readonly HashSet<int> Acknowledged = new();
-            internal readonly TaskCompletionSource<bool> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            internal bool CommitSent;
-            internal byte[] Fallback;
 
-            internal Proposal(string id, int revision, float expires)
+            internal Drag(int actor, string id, int step, float expires)
             {
+                Actor = actor;
                 Id = id;
-                Revision = revision;
+                Step = step;
                 Expires = expires;
             }
         }
@@ -578,5 +773,4 @@ namespace ASAL
             }
         }
     }
-
 }

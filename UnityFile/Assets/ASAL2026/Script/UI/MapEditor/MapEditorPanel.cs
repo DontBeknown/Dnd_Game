@@ -61,8 +61,7 @@ namespace ASAL
         internal TilemapDataWrapper CaptureStartingMap()
         {
             var map = draft.Capture();
-            return map.tilemapDataList.Where(layer => layer.key == "Tilemap_Floor")
-                .SelectMany(layer => layer.tiles).Any(tile => MatchSnapshot.IsWalkable(map, tile.position)) ? map : null;
+            return map.tilemapDataList.Any(layer => layer.tiles.Count > 0) ? map : null;
         }
 
         internal void Open()

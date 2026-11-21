@@ -72,7 +72,7 @@ namespace ASAL
             layout.SaveButton.onClick.AddListener(Save);
             layout.DeleteButton.onClick.AddListener(Delete);
             back.onClick.AddListener(() => close());
-            if (layout.RequiresSavedRecord)
+            if (layout.UsesTemplateDraft)
                 recordName.onValueChanged.AddListener(_ => MarkDirty());
             RenderIndex(null);
             LoadDraft(0);
@@ -88,7 +88,7 @@ namespace ASAL
         {
             if (busy || !Current)
                 return;
-            if (layout.RequiresSavedRecord && dirty)
+            if (layout.UsesTemplateDraft && dirty)
             {
                 Records.SetValueWithoutNotify(Array.FindIndex(entries, item => item.firebaseKey == existingId) + 1);
                 Records.RefreshShownValue();
@@ -104,11 +104,11 @@ namespace ASAL
             dirty = false;
             existingId = index == 0 ? null : entries[index - 1].firebaseKey;
             draft = index == 0
-                ? (layout.RequiresSavedRecord ? Characters.NewRoomDraft(enemy) : Characters.NewDraft())
+                ? (layout.UsesTemplateDraft ? Characters.NewRoomDraft(enemy) : Characters.NewDraft())
                 : Copy(entries[index - 1]);
             draft.firebaseKey = existingId;
             draft.abilityScorePoints ??= new List<CharacterData.AbilityScorePointsData>();
-            if (index == 0 && !layout.RequiresSavedRecord)
+            if (index == 0 && !layout.UsesTemplateDraft)
                 Characters.SetCatalog(draft, Characters.Races[0], Characters.Classes[0]);
 
             recordName.SetTextWithoutNotify(draft.characterName ?? string.Empty);
@@ -187,7 +187,7 @@ namespace ASAL
             if (preferredId != null || existingId != null && Records.value == 0)
                 LoadDraft(Records.value);
             status.text = entries.Length == 0
-                ? (enemy ? "No saved monster templates. Use Create Enemy to save one." : "No saved records. Create a new one.")
+                ? (enemy ? "No saved enemies. Edit the draft, then use Create Enemy." : "No saved characters. Edit the draft, then create a character.")
                 : string.Empty;
         }, enemy ? "Could not load monster templates. Check database access or reopen to retry." : "Could not load saved characters. Reopen to retry.");
 
@@ -202,8 +202,7 @@ namespace ASAL
             }
 
             bool isNew = existingId == null;
-            if (!layout.RequiresSavedRecord || !isNew)
-                draft.characterName = recordName.text;
+            draft.characterName = recordName.text;
             Run("Saving…", async () =>
             {
                 await Characters.SaveAsync(account, enemy, draft);
@@ -252,9 +251,9 @@ namespace ASAL
         private void RenderIndex(string selected)
         {
             Records.ClearOptions();
-            var newLabel = layout.RequiresSavedRecord ? (enemy ? "Create New Monster" : "Create New Character") : "New character";
+            var newLabel = layout.UsesTemplateDraft ? (enemy ? "Create New Monster" : "Create New Character") : "New character";
             var labels = new List<string> { newLabel };
-            if (layout.RequiresSavedRecord)
+            if (layout.UsesTemplateDraft)
             {
                 var counts = new Dictionary<string, int>(StringComparer.Ordinal) { [newLabel] = 1 };
                 foreach (var entry in entries)
@@ -312,10 +311,9 @@ namespace ASAL
         private void Controls()
         {
             bool hasRecord = existingId != null;
-            bool canEdit = !busy && (!layout.RequiresSavedRecord || hasRecord);
             Records.interactable = !busy;
-            race.interactable = characterClass.interactable = recordName.interactable = canEdit;
-            layout.SaveButton.interactable = canEdit;
+            race.interactable = characterClass.interactable = recordName.interactable = !busy;
+            layout.SaveButton.interactable = !busy;
             layout.DeleteButton.interactable = !busy && hasRecord && !IsAssignedCharacter;
             layout.SetControls(draft, busy, hasRecord, choose != null, dirty);
         }

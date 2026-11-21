@@ -73,6 +73,47 @@ namespace ASAL.Tests
             }
         }
 
+        [TestCase(false)]
+        [TestCase(true)]
+        public void NewTemplateDraftCanBeEditedBeforeCreatingARecord(bool enemy)
+        {
+            const BindingFlags members = BindingFlags.Instance | BindingFlags.NonPublic;
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/ASAL2026/Prefab/UI/CharacterPicker/SelectCharacter.prefab");
+            var instance = Object.Instantiate(prefab);
+            var managerType = Type.GetType("ASAL.CharacterManager, Assembly-CSharp", true);
+            var manager = instance.AddComponent(managerType);
+            managerType.GetMethod("Register", members).Invoke(manager, null);
+            try
+            {
+                managerType.GetMethod("Initialize", members).Invoke(manager, null);
+                var panelType = Type.GetType("ASAL.CharacterEditorPanel, Assembly-CSharp", true);
+                var panel = instance.GetComponent(panelType);
+                var bindings = new SerializedObject(panel);
+                var layout = bindings.FindProperty("layout").objectReferenceValue;
+                var layoutBindings = new SerializedObject(layout);
+                layout.GetType().GetMethod("Bind", members).Invoke(layout, new object[] { panel, enemy });
+                panelType.GetField("enemy", members).SetValue(panel, enemy);
+                panelType.GetMethod("LoadDraft", members).Invoke(panel, new object[] { 0 });
+
+                foreach (var field in new[] { "recordName", "race", "characterClass", "reset", "increaseLevel", "decreaseLevel" })
+                {
+                    var control = (bindings.FindProperty(field) ?? layoutBindings.FindProperty(field)).objectReferenceValue;
+                    Assert.That(new SerializedObject(control).FindProperty("m_Interactable").boolValue, Is.True, field);
+                }
+                var scoreButton = layoutBindings.FindProperty("increaseScores").GetArrayElementAtIndex(0).objectReferenceValue;
+                Assert.That(new SerializedObject(scoreButton).FindProperty("m_Interactable").boolValue, Is.True);
+                var create = (Component)layoutBindings.FindProperty(enemy ? "createMonster" : "create").objectReferenceValue;
+                var delete = (Component)layoutBindings.FindProperty(enemy ? "deleteMonster" : "delete").objectReferenceValue;
+                Assert.That(create.gameObject.activeSelf, Is.True);
+                Assert.That(delete.gameObject.activeSelf, Is.False);
+            }
+            finally
+            {
+                managerType.GetMethod("Unregister", members).Invoke(manager, null);
+                Object.DestroyImmediate(instance);
+            }
+        }
+
         [Test]
         public void CharacterEditorBindsTypedForm()
         {
@@ -121,8 +162,9 @@ namespace ASAL.Tests
             Assert.That(hp.Invoke(null, new[] { draft, (object)8 }), Is.EqualTo(18));
         }
 
-        [Test]
-        public void RoomDraftReadsLegacyTemplateWithoutMutatingIt()
+        [TestCase(false, "New Character")]
+        [TestCase(true, "New Enemy")]
+        public void RoomDraftReadsRoleTemplateWithoutMutatingIt(bool enemy, string expectedName)
         {
             var managerType = Type.GetType("ASAL.CharacterManager, Assembly-CSharp", true);
             const BindingFlags methods = BindingFlags.Instance | BindingFlags.NonPublic;
@@ -132,9 +174,10 @@ namespace ASAL.Tests
                 var manager = root.AddComponent(managerType);
                 managerType.GetMethod("Initialize", methods).Invoke(manager, null);
                 var newDraft = managerType.GetMethod("NewRoomDraft", methods);
-                var first = newDraft.Invoke(manager, null);
+                var first = newDraft.Invoke(manager, new object[] { enemy });
                 var recordType = first.GetType();
                 var abilityPoints = recordType.GetField("abilityPoint");
+                Assert.That(recordType.GetField("characterName").GetValue(first), Is.EqualTo(expectedName));
                 Assert.That(abilityPoints.GetValue(first), Is.EqualTo(20));
                 Assert.That(recordType.GetField("level").GetValue(first), Is.EqualTo(10));
                 Assert.That(recordType.GetField("HP").GetValue(first), Is.GreaterThan(0));
@@ -143,7 +186,8 @@ namespace ASAL.Tests
                 var abilityScores = recordType.GetField("abilityScorePoints");
                 ((IList)abilityScores.GetValue(first)).Clear();
                 abilityPoints.SetValue(first, 0);
-                var reset = newDraft.Invoke(manager, null);
+                var reset = newDraft.Invoke(manager, new object[] { enemy });
+                Assert.That(recordType.GetField("characterName").GetValue(reset), Is.EqualTo(expectedName));
                 Assert.That(abilityPoints.GetValue(reset), Is.EqualTo(20));
                 Assert.That(((IList)abilityScores.GetValue(reset)).Count, Is.EqualTo(4));
             }
@@ -183,26 +227,30 @@ namespace ASAL.Tests
         }
 
         [Test]
-        public void WalkabilityAndMovementRespectOwnershipAndRevision()
+        public void BoardCenterUsesAuthoredMapExtentAndDefaultsToOrigin()
         {
             var type = Type.GetType("ASAL.MatchSnapshot, Assembly-CSharp", true);
+            var center = type.GetMethod("BoardCenter", BindingFlags.Instance | BindingFlags.NonPublic);
+            var empty = JsonUtility.FromJson("{}", type);
+            Assert.That(center.Invoke(empty, null), Is.EqualTo(Vector2.zero));
+
             var snapshot = JsonUtility.FromJson(@"{
-                ""MatchId"":""room"",""Revision"":3,""Roster"":[],
-                ""Tokens"":[{""Id"":""player-2"",""OwnerActor"":2,""Placed"":true}],
-                ""Map"":{""tilemapDataList"":[{""key"":""Tilemap_Floor"",""tiles"":[{""position"":{""x"":1}},
-                  {""position"":{""x"":2}}]},{""key"":""Tilemap_Wall"",""tiles"":[{""position"":{""x"":2}}]}]}}", type);
-            var payload = @"{""CommandId"":""12345678901234567890123456789012"",""MatchId"":""room"",
-                ""ExpectedRevision"":3,""Action"":1,""TokenId"":""player-2"",""Cell"":{""x"":1}}";
-            var command = JsonUtility.FromJson(payload, Type.GetType("ASAL.MatchCommand, Assembly-CSharp", true));
-            var apply = type.GetMethod("TryApply", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.That(apply.Invoke(snapshot, new[] { command, (object)2, false, null }), Is.True);
-            Assert.That(apply.Invoke(snapshot, new[] { command, (object)3, false, null }), Is.False);
-            Assert.That(apply.Invoke(snapshot, new[] { command, (object)1, true, null }), Is.True);
-            command.GetType().GetField("ExpectedRevision").SetValue(command, 2);
-            Assert.That(apply.Invoke(snapshot, new[] { command, (object)2, false, null }), Is.False);
-            command.GetType().GetField("ExpectedRevision").SetValue(command, 3);
-            command.GetType().GetField("Cell").SetValue(command, new Vector3Int(2, 0, 0));
-            Assert.That(apply.Invoke(snapshot, new[] { command, (object)2, false, null }), Is.False);
+                ""Map"":{""tilemapDataList"":[{""key"":""Tilemap_Floor"",""tiles"":[{""position"":{""x"":-2,""y"":1}}]},
+                    {""key"":""Tilemap_Wall"",""tiles"":[{""position"":{""x"":4,""y"":8}}]}]}}", type);
+            Assert.That(center.Invoke(snapshot, null), Is.EqualTo(new Vector2(1, 4.5f)));
+        }
+
+        [TestCase(2, false, 2, true)]
+        [TestCase(2, false, 3, false)]
+        [TestCase(2, false, 0, false)]
+        [TestCase(0, false, 0, false)]
+        [TestCase(1, true, 3, true)]
+        [TestCase(1, true, 0, true)]
+        public void MatchDragAuthorityUsesTheSenderAndTokenOwner(int actor, bool dm, int owner, bool allowed)
+        {
+            var session = Type.GetType("ASAL.MatchSession, Assembly-CSharp", true);
+            var authorize = session.GetMethod("CanDragToken", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.That(authorize.Invoke(null, new object[] { actor, dm, owner }), Is.EqualTo(allowed));
         }
 
         [Test]
@@ -217,25 +265,6 @@ namespace ASAL.Tests
             Assert.That(add.Invoke(transfer, new object[] { 0, new byte[] { 0 } }), Is.False);
             Assert.That(add.Invoke(transfer, new object[] { 0, new byte[] { 9 } }), Is.False);
             Assert.That(add.Invoke(transfer, new object[] { 1, new byte[] { 1 } }), Is.True);
-        }
-
-        [TestCase(true)]
-        [TestCase(false)]
-        public void AppliesOnlyAfterCommitAndMatchingSnapshot(bool commitFirst)
-        {
-            var snapshotType = Type.GetType("ASAL.MatchSnapshot, Assembly-CSharp", true);
-            var snapshot = JsonUtility.FromJson(@"{""Revision"":2}", snapshotType);
-            var dictionaryType = typeof(System.Collections.Generic.Dictionary<,>).MakeGenericType(typeof(string), snapshotType);
-            var staged = (IDictionary)Activator.CreateInstance(dictionaryType);
-            var session = Type.GetType("ASAL.MatchSession, Assembly-CSharp", true);
-            var find = session.GetMethod("FindCommitted", BindingFlags.Static | BindingFlags.NonPublic);
-            if (!commitFirst)
-                staged["proposal"] = snapshot;
-            Assert.That(find.Invoke(null, new object[] { staged, 1, commitFirst ? 2 : 1, "proposal" }), Is.Null);
-            staged["proposal"] = snapshot;
-            Assert.That(find.Invoke(null, new object[] { staged, 1, 2, "other" }), Is.Null);
-            Assert.That(find.Invoke(null, new object[] { staged, 1, 2, "proposal" }), Is.SameAs(snapshot));
-            Assert.That(find.Invoke(null, new object[] { staged, 2, 2, "proposal" }), Is.Null);
         }
 
         [TestCase(false)]

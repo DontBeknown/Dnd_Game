@@ -29,6 +29,8 @@ namespace ASAL
 
         internal Vector2 BoardPointer => EditorPointer;
         internal bool BoardClick => EditorStrokeStarted;
+        internal bool BoardHeld => Mouse.current?.leftButton.isPressed == true;
+        internal bool BoardReleased => EditorStrokeEnded;
         internal bool BoardCancel => EditorCancelStroke;
         internal bool BoardDismiss => Keyboard.current?.escapeKey.wasPressedThisFrame == true;
         internal float BoardZoom => EditorZoom;

@@ -266,16 +266,18 @@ namespace ASAL
                 AbortRoom("The DM left the room.");
                 return;
             }
-            if (photon.Started && Phase == RoomPhase.Setup)
+            if ((photon.Started || photon.Playing) && Phase == RoomPhase.Setup)
             {
                 waitingForStart = false;
                 Phase = RoomPhase.Starting;
-                StartRequested?.Invoke(session);
+                if (photon.Started)
+                    StartRequested?.Invoke(session);
             }
-            else if (Phase == RoomPhase.Starting && !photon.Started && photon.MatchRevision == 0)
+            else if (Phase == RoomPhase.Starting && !photon.Started && !photon.Playing)
             {
                 cancelStart = false;
                 Phase = RoomPhase.Setup;
+                UIManager.Instance.DiscardPreparedPlay();
                 if (IsDm)
                     RequestDiscovery(true);
             }

@@ -118,7 +118,15 @@ namespace ASAL
             PhotonNetwork.AutomaticallySyncScene = false;
             PhotonNetwork.AuthValues = new AuthenticationValues(account.Uid);
             PhotonNetwork.NickName = account.DisplayName;
-            Begin(PhotonNetwork.ConnectUsingSettings(), "Could not connect to Photon.");
+            var server = PhotonNetwork.PhotonServerSettings;
+            if (server == null)
+            {
+                Begin(false, "Could not connect to Photon.");
+                return;
+            }
+            var settings = server.AppSettings.CopyTo(new AppSettings());
+            settings.AppVersion += "-live-board-v3";
+            Begin(PhotonNetwork.ConnectUsingSettings(settings, server.StartInOfflineMode), "Could not connect to Photon.");
         }
 
         internal void Create(string roomName)
@@ -137,9 +145,7 @@ namespace ASAL
                 CustomRoomProperties = new Hashtable
                 {
                     [SESSION_KEY] = Guid.NewGuid().ToString("N"),
-                    [PHASE_KEY] = (int)RoomPhase.Setup,
-                    [REVISION_KEY] = 0,
-                    [PROPOSAL_KEY] = string.Empty
+                    [PHASE_KEY] = (int)RoomPhase.Setup
                 },
                 CustomRoomPropertiesForLobby = new[] { SESSION_KEY }
             };
@@ -247,6 +253,7 @@ namespace ASAL
 
         public override void OnLeftRoom()
         {
+            ClearTokenViews();
             wasInRoom = false;
             CreatedRoom = false;
             busy = true;
@@ -256,6 +263,7 @@ namespace ASAL
 
         public override void OnDisconnected(DisconnectCause cause)
         {
+            ClearTokenViews();
             var intentional = switchingAccount;
             switchingAccount = false;
             wasInRoom = false;

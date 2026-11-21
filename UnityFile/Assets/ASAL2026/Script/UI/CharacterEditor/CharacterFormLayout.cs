@@ -13,7 +13,7 @@ namespace ASAL
         internal virtual TMP_Dropdown Records => records;
         internal virtual UnityEngine.UI.Button SaveButton => save;
         internal virtual UnityEngine.UI.Button DeleteButton => delete;
-        internal virtual bool RequiresSavedRecord => false;
+        internal virtual bool UsesTemplateDraft => false;
 
         internal abstract void Bind(CharacterEditorPanel panel, bool enemy);
         internal virtual void LoadDraft(CharacterData draft) { }

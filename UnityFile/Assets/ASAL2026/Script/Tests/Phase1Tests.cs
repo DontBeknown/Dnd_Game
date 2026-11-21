@@ -15,7 +15,8 @@ namespace ASAL.Tests
         private static readonly string[] Managers =
         {
             "InputManager", "UIManager", "AuthManager", "SaveManager",
-            "PhotonManager", "RoomManager", "GameFlowManager"
+            "PhotonManager", "RoomManager", "CharacterManager", "CombatManager",
+            "DiceManager", "InventoryManager", "ChatManager", "GameFlowManager"
         };
 
         // Runtime scripts share Unity's predefined assembly with the generated PlayerInput.

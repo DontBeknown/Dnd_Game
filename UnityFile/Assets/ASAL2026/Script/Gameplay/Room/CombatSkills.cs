@@ -83,8 +83,6 @@ namespace ASAL
                     : critical ? rawDamage + rawDamage / 2 : rawDamage, 0, int.MaxValue);
                 bool dodged = !heal && amount > 0 && CombatRules.Has(state, CombatRules.Dodge);
                 var change = CombatRules.ApplyHealth(state, heal ? amount : -amount, target.Character.MaxHp, !heal);
-                if (name == "Ice shot" && !dodged && state.Hp > 0)
-                    CombatRules.AddStatus(state, "Ice shot", 1, token.Id);
                 if (dodged)
                     changes.Add($"{target.Name} dodged");
                 else

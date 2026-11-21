@@ -10,8 +10,7 @@ namespace ASAL
     {
         public static CharacterManager Instance { get; private set; }
 
-        private readonly Dictionary<string, TokenView> views = new();
-        private readonly Stack<TokenView> available = new();
+        private string selectedTokenId;
 
         internal Race[] Races { get; private set; }
         internal CharacterClass[] Classes { get; private set; }
@@ -207,37 +206,35 @@ namespace ASAL
         private static long RaceAdjustedScore(CharacterData.AbilityScorePointsData ability, Race previous, Race next) =>
             (long)ability.abilityScorePoint + Bonus(next, ability.abilityScoreName) - Bonus(previous, ability.abilityScoreName);
 
-        internal void Reconcile(MatchSnapshot snapshot, TokenView prefab, Transform root, Grid grid)
+        internal static Vector3 BoardToWorld(Grid grid, Vector2 position)
         {
-            var placed = snapshot.Tokens.Where(token => token.Placed).Select(token => token.Id).ToHashSet();
-            foreach (var id in views.Keys.Where(id => !placed.Contains(id)).ToArray())
-            {
-                var view = views[id];
-                views.Remove(id);
-                view.gameObject.SetActive(false);
-                available.Push(view);
-            }
-
-            foreach (var token in snapshot.Tokens.Where(token => token.Placed))
-            {
-                if (!views.TryGetValue(token.Id, out var view))
-                {
-                    view = available.Count == 0 ? Instantiate(prefab, root, false) : available.Pop();
-                    views.Add(token.Id, view);
-                }
-                view.Bind(token, grid.GetCellCenterWorld(token.Cell));
-                view.gameObject.SetActive(true);
-            }
+            var origin = grid.GetCellCenterWorld(Vector3Int.zero);
+            var xStride = grid.GetCellCenterWorld(Vector3Int.right) - origin;
+            var yStride = grid.GetCellCenterWorld(Vector3Int.up) - origin;
+            return origin + xStride * position.x + yStride * position.y;
         }
 
-        internal void ClearViews()
+        internal static Vector2 WorldToBoard(Grid grid, Vector3 position)
         {
-            foreach (var view in views.Values.Concat(available))
-                if (view)
-                    Destroy(view.gameObject);
-            views.Clear();
-            available.Clear();
+            var origin = grid.GetCellCenterLocal(Vector3Int.zero);
+            var offset = grid.transform.InverseTransformPoint(position) - origin;
+            var xStride = grid.GetCellCenterLocal(Vector3Int.right) - origin;
+            var yStride = grid.GetCellCenterLocal(Vector3Int.up) - origin;
+            return new Vector2(Vector3.Dot(offset, xStride) / xStride.sqrMagnitude,
+                Vector3.Dot(offset, yStride) / yStride.sqrMagnitude);
         }
+
+        internal void SetSelected(string id)
+        {
+            var views = PhotonManager.Instance?.TokenViews;
+            if (selectedTokenId != null && views != null && views.TryGetValue(selectedTokenId, out var previous) && previous)
+                previous.SetSelected(false);
+            selectedTokenId = id;
+            if (id != null && views != null && views.TryGetValue(id, out var current) && current)
+                current.SetSelected(true);
+        }
+
+        internal void ClearViews() => SetSelected(null);
 
         private static void CheckAccess(AccountProfile account, bool enemy)
         {

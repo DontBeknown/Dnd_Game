@@ -68,7 +68,7 @@ namespace ASAL
         internal bool TryResolve(MatchSnapshot current, MatchCommand command, int actor, bool dm, out MatchDelta delta,
             out MatchLogEntry privateReport)
         {
-            delta = new MatchDelta { MatchId = current.MatchId, Revision = current.Revision + 1 };
+            delta = new MatchDelta();
             privateReport = null;
             if (command.Action == MatchAction.RollDice)
             {
@@ -129,46 +129,21 @@ namespace ASAL
             return true;
         }
 
-        internal static bool TryMove(MatchSnapshot current, MatchCommand command, MatchDelta delta, int actor, bool dm)
+        internal static void ResolvePlacement(MatchSnapshot current, MatchCommand command, MatchDelta delta)
         {
             if (current.Encounter == null)
-                return true;
-            if (command.Action == MatchAction.Place)
-            {
-                if (!dm)
-                    return false;
-                var encounter = CopyEncounter(current, delta);
-                var added = delta.Token;
-                var initiative = DiceManager.RollFace(20);
-                encounter.TurnOrder = encounter.TurnOrder.Append(new Combatant
-                    { TokenId = added.Id, Initiative = initiative, Hp = added.Hp })
-                    .OrderByDescending(entry => entry.Initiative).ThenBy(entry => entry.TokenId, StringComparer.Ordinal).ToArray();
-                delta.Log = Entry(command, $"{added.Name} joined combat with initiative {initiative}.",
-                    DiceManager.MakeRoll(command.CommandId, new[] { 20 }, new[] { initiative }));
-                if (encounter.ActiveTokenId == null)
-                    CombatRules.Advance(encounter, current.Tokens.Where(candidate => candidate.Id != added.Id).Append(added).ToArray());
-                return true;
-            }
-
-            var before = Array.Find(current.Tokens, token => token.Id == command.TokenId);
-            if (!CombatRules.CanAct(current.Encounter, before, actor, dm))
-                return false;
-            var state = CopyEncounter(current, delta).Find(before.Id);
-            var cost = CombatRules.MovementCost(current.Map, before.Cell, command.Cell, state.MoveLeft);
-            if (cost < 1)
-                return false;
-            state.MoveLeft -= cost;
-            return true;
-        }
-
-        internal static void ReconcileMap(MatchSnapshot next)
-        {
-            var encounter = next.Encounter;
-            if (encounter == null)
                 return;
-            if (!next.Tokens.Any(token => token.Id == encounter.ActiveTokenId && token.Placed))
-                CombatRules.Advance(encounter, next.Tokens);
-            encounter.TurnOrder = encounter.TurnOrder.Where(entry => next.Tokens.Any(token => token.Id == entry.TokenId && token.Placed)).ToArray();
+
+            var encounter = CopyEncounter(current, delta);
+            var added = delta.Token;
+            var initiative = DiceManager.RollFace(20);
+            encounter.TurnOrder = encounter.TurnOrder.Append(new Combatant
+                { TokenId = added.Id, Initiative = initiative, Hp = added.Hp })
+                .OrderByDescending(entry => entry.Initiative).ThenBy(entry => entry.TokenId, StringComparer.Ordinal).ToArray();
+            delta.Log = Entry(command, $"{added.Name} joined combat with initiative {initiative}.",
+                DiceManager.MakeRoll(command.CommandId, new[] { 20 }, new[] { initiative }));
+            if (encounter.ActiveTokenId == null)
+                CombatRules.Advance(encounter, current.Tokens.Where(candidate => candidate.Id != added.Id).Append(added).ToArray());
         }
 
         private static CombatEncounter CopyEncounter(MatchSnapshot current, MatchDelta delta)
@@ -202,7 +177,7 @@ namespace ASAL
             var hp = CombatRules.ClampHp(token.Hp, amount, token.Character.MaxHp);
             if (hp == token.Hp)
                 return false;
-            var changed = token.At(token.Cell);
+            var changed = token.At(token.Position);
             changed.Hp = hp;
             delta.Token = changed;
             var encounter = CopyEncounter(current, delta);
@@ -249,7 +224,7 @@ namespace ASAL
             delta.ChangedTokens = current.Tokens.Where(token => delta.Encounter.Find(token.Id) is { } entry && entry.Hp != token.Hp)
                 .Select(token =>
                 {
-                    var changed = token.At(token.Cell);
+                    var changed = token.At(token.Position);
                     changed.Hp = delta.Encounter.Find(token.Id).Hp;
                     return changed;
                 }).ToArray();

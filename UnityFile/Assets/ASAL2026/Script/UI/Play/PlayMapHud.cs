@@ -52,7 +52,7 @@ namespace ASAL
                 row.GetComponentInChildren<Button>(true).onClick.AddListener(() =>
                 {
                     hud.CloseModal();
-                    play.SelectEnemy(template.firebaseKey);
+                    play.StartEnemyPlacement(template);
                 });
             }
         }

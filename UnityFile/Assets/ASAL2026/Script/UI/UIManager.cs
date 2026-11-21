@@ -23,6 +23,7 @@ namespace ASAL
         private MapEditorPanel mapEditor;
         private CharacterEditorPanel recordEditor;
         private PlayPanel play;
+        private bool playStarted;
         private Button editorReturnFocus;
         private RectTransform screenRoot;
         private RoomManager rooms;
@@ -53,6 +54,7 @@ namespace ASAL
             panels[0].ValidateBindings();
             signInPanel = panels[0];
             screenRoot = root;
+            PhotonManager.RegisterTokenPrefab(playPrefab.NetworkTokenPrefab);
             authoredLobby = root.GetComponentInChildren<LobbyPanel>(true);
             if (authoredLobby)
                 authoredLobby.gameObject.SetActive(false);
@@ -149,16 +151,49 @@ namespace ASAL
 
         internal void ShowPlay(MatchSnapshot snapshot)
         {
+            var board = GetPlayBoard();
+            board.Apply(snapshot);
+            if (!playStarted)
+            {
+                playStarted = true;
+                board.BeginPlay();
+                screens.Show(board.gameObject, retirePrevious: () => mainBackGround.SetActive(false));
+            }
+        }
+
+        internal PlayPanel EnsurePlayBoard(TilemapDataWrapper map, int revision)
+        {
+            var board = GetPlayBoard();
+            board.PrepareBoard(map, revision);
+            return board;
+        }
+
+        private PlayPanel GetPlayBoard()
+        {
             if (!play)
             {
                 play = Instantiate(playPrefab, screenRoot, false);
                 play.Initialize(rooms, account);
-                play.Apply(snapshot);
-                screens.Show(play.gameObject, retirePrevious: () => mainBackGround.SetActive(false));
-                return;
             }
+            return play;
+        }
 
-            play.Apply(snapshot);
+        internal void DiscardPreparedPlay()
+        {
+            if (!playStarted)
+                ClearPlay();
+        }
+
+        private void ClearPlay()
+        {
+            if (play)
+            {
+                play.Release();
+                play.gameObject.SetActive(false);
+                Destroy(play.gameObject);
+                play = null;
+            }
+            playStarted = false;
         }
 
         internal void OpenRecordEditor(bool enemy, Button focus)
@@ -178,7 +213,7 @@ namespace ASAL
             var previous = recordEditor;
             recordEditor = null;
             previous.Release();
-            var target = play ? play.gameObject : rooms.InRoom ? roomPanel.gameObject : lobbyPanel.gameObject;
+            var target = playStarted ? play.gameObject : rooms.InRoom ? roomPanel.gameObject : lobbyPanel.gameObject;
             screens.Show(target, retirePrevious: () =>
             {
                 Destroy(previous.gameObject);
@@ -228,11 +263,11 @@ namespace ASAL
         private void CloseMapEditor()
         {
             mapEditor.enabled = false;
-            var target = play ? play.gameObject : roomPanel.gameObject;
+            var target = playStarted ? play.gameObject : roomPanel.gameObject;
             screens.Show(target, retirePrevious: () =>
             {
-                mainBackGround.SetActive(!play);
-                if (play)
+                mainBackGround.SetActive(!playStarted);
+                if (playStarted)
                     play.FocusMapEditor();
                 else
                     RestoreRoomFocus();
@@ -257,13 +292,7 @@ namespace ASAL
                 recordEditor = null;
                 editorReturnFocus = null;
             }
-            if (play)
-            {
-                play.Release();
-                play.gameObject.SetActive(false);
-                Destroy(play.gameObject);
-                play = null;
-            }
+            ClearPlay();
             mainBackGround.SetActive(true);
             RetireCharacterPicker();
             if (mapEditor)

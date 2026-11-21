@@ -31,7 +31,7 @@ namespace ASAL
         internal override TMP_Dropdown Records => enemy ? monsterRecords : base.Records;
         internal override Button SaveButton => enemy ? saveMonster : base.SaveButton;
         internal override Button DeleteButton => enemy ? deleteMonster : base.DeleteButton;
-        internal override bool RequiresSavedRecord => true;
+        internal override bool UsesTemplateDraft => true;
 
         internal override void Bind(CharacterEditorPanel panel, bool enemy)
         {
@@ -74,13 +74,13 @@ namespace ASAL
 
         internal override void SetControls(CharacterData draft, bool busy, bool hasRecord, bool canSelect, bool dirty)
         {
-            bool canEdit = !busy && hasRecord;
+            bool canEdit = !busy;
             CreateButton.gameObject.SetActive(!hasRecord);
             CreateButton.interactable = !busy;
             SaveButton.gameObject.SetActive(hasRecord);
             DeleteButton.gameObject.SetActive(hasRecord);
             confirmSelection.gameObject.SetActive(hasRecord && canSelect);
-            confirmSelection.interactable = canEdit && !dirty;
+            confirmSelection.interactable = canEdit && hasRecord && !dirty;
             reset.interactable = canEdit;
             increaseLevel.interactable = canEdit && draft.level < int.MaxValue;
             decreaseLevel.interactable = canEdit && draft.level > 1;

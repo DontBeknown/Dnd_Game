@@ -67,7 +67,7 @@ namespace ASAL
             selectCharacter.interactable = mapEditor.interactable = model.CanEditRoom;
             ready.image.sprite = model.LocalReady ? readySprite : notReadySprite;
             status.text = model.Error ?? (model.Phase == RoomPhase.Starting
-                ? "Waiting for the initial match snapshot."
+                ? "Waiting for the DM to prepare the board."
                 : !model.CanLeave ? "Leaving room…"
                 : !model.CanEditRoom ? "Updating room…"
                 : !model.IsDm && !model.HasSelection ? "Select a saved character to ready up."

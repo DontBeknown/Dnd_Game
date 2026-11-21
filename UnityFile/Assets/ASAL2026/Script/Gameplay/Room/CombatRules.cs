@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
@@ -49,7 +48,6 @@ namespace ASAL
         public int Initiative;
         public int Hp;
         public int ActionsLeft;
-        public int MoveLeft;
         public string[] MultiShotTargets = Array.Empty<string>();
         public CombatStatus[] Statuses = Array.Empty<CombatStatus>();
     }
@@ -66,7 +64,6 @@ namespace ASAL
     {
         internal const string Dodge = "Warrior’s sense";
         internal const string MultiShots = "Multi shots";
-        private static readonly Vector3Int[] Neighbors = { Vector3Int.up, Vector3Int.down, Vector3Int.left, Vector3Int.right };
 
         internal static CombatEncounter StartEncounter(MatchToken[] tokens, Func<int, int> roll)
         {
@@ -77,7 +74,7 @@ namespace ASAL
             if (active == null)
                 return null;
             var encounter = new CombatEncounter { TurnOrder = order, Round = 1 };
-            BeginTurn(encounter, active, tokens);
+            BeginTurn(encounter, active);
             return encounter;
         }
 
@@ -88,7 +85,6 @@ namespace ASAL
             if (active != null)
             {
                 active.ActionsLeft = 0;
-                active.MoveLeft = 0;
                 active.MultiShotTargets = Array.Empty<string>();
             }
             for (int step = 1; step <= encounter.TurnOrder.Length; step++)
@@ -99,13 +95,13 @@ namespace ASAL
                     continue;
                 if (index <= previous && encounter.Round < int.MaxValue)
                     encounter.Round++;
-                BeginTurn(encounter, next, tokens);
+                BeginTurn(encounter, next);
                 return;
             }
             encounter.ActiveTokenId = null;
         }
 
-        private static void BeginTurn(CombatEncounter encounter, Combatant next, MatchToken[] tokens)
+        private static void BeginTurn(CombatEncounter encounter, Combatant next)
         {
             encounter.ActiveTokenId = next.TokenId;
             foreach (var entry in encounter.TurnOrder)
@@ -114,8 +110,6 @@ namespace ASAL
             }
             next.Statuses = next.Statuses.Where(status => status.Turns != 0 && status.Name != Dodge).ToArray();
             next.ActionsLeft = Has(next, "Turn undead") ? 0 : 1;
-            next.MoveLeft = (Array.Find(tokens, token => token.Id == next.TokenId)?.Character?.Skills?.Contains("Size matter") == true ? 7 : 6)
-                - (Has(next, "Ice shot") ? 2 : 0);
             foreach (var status in next.Statuses)
                 if (status.Turns > 0)
                     status.Turns--;
@@ -124,31 +118,6 @@ namespace ASAL
         internal static bool CanAct(CombatEncounter encounter, MatchToken token, int actor, bool dm) =>
             encounter?.ActiveTokenId != null && token?.Placed == true && encounter.ActiveTokenId == token.Id
             && encounter.Find(token.Id)?.Hp > 0 && (dm ? token.OwnerActor == 0 : token.OwnerActor == actor);
-
-        internal static int MovementCost(TilemapDataWrapper map, Vector3Int origin, Vector3Int destination, int allowance)
-        {
-            var direct = Math.Abs((long)origin.x - destination.x) + Math.Abs((long)origin.y - destination.y);
-            if (direct == 0 || direct > allowance)
-                return -1;
-            var queue = new Queue<(Vector3Int Cell, int Steps)>();
-            var visited = new HashSet<Vector3Int> { origin };
-            queue.Enqueue((origin, 0));
-            while (queue.Count > 0)
-            {
-                var (cell, steps) = queue.Dequeue();
-                foreach (var direction in Neighbors)
-                {
-                    var next = cell + direction;
-                    if (!visited.Add(next) || !MatchSnapshot.IsWalkable(map, next))
-                        continue;
-                    if (next == destination)
-                        return steps + 1;
-                    if (steps + 1 < allowance)
-                        queue.Enqueue((next, steps + 1));
-                }
-            }
-            return -1;
-        }
 
         internal static int ApplyHealth(Combatant target, int amount, int maxHp, bool attack)
         {
@@ -191,6 +160,6 @@ namespace ASAL
         internal static bool IsFriendly(MatchToken first, MatchToken second) => (first.OwnerActor == 0) == (second.OwnerActor == 0);
 
         internal static bool InRange(MatchToken caster, MatchToken target, int range) =>
-            Math.Abs((long)caster.Cell.x - target.Cell.x) + Math.Abs((long)caster.Cell.y - target.Cell.y) <= range;
+            Math.Abs((double)caster.Position.x - target.Position.x) + Math.Abs((double)caster.Position.y - target.Position.y) <= range;
     }
 }

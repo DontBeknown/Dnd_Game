@@ -47,7 +47,10 @@ namespace ASAL
                 var slot = i;
                 checkAbility[i].onClick.AddListener(() =>
                 {
-                    var ability = AbilityAt(Inspected()?.Character, slot);
+                    var token = Inspected();
+                    if (room.IsDm || token == null || token.OwnerActor != room.LocalActor)
+                        return;
+                    var ability = AbilityAt(token.Character, slot);
                     if (ability != null)
                         CombatManager.Instance.RollAbility(inspectedToken, ability.Name);
                 });
@@ -87,6 +90,7 @@ namespace ASAL
             skillReturnFocus = null;
             pendingSkill = null;
             inspectedToken = null;
+            play.SetSelectedToken(null);
         }
 
         internal bool TryCloseSkill()
@@ -100,7 +104,7 @@ namespace ASAL
 
         internal bool Inspect(MatchToken token)
         {
-            if (token?.Character == null || (token.OwnerActor == 0 && !room.IsDm))
+            if (token?.Character == null || !PlayPanel.CanSelectToken(token.OwnerActor, room.LocalActor, room.IsDm))
                 return false;
             hud.OpenModal(characterPanel, null, ClearInspection);
             inspectedToken = token.Id;
@@ -123,6 +127,9 @@ namespace ASAL
         private MatchToken FindToken(string id) => snapshot?.Tokens.FirstOrDefault(token => token.Id == id);
         private MatchToken Inspected() => FindToken(inspectedToken);
 
+        internal static bool CanCastTokenSkill(int ownerActor, int localActor, bool isDm) =>
+            isDm ? ownerActor == 0 : localActor > 0 && ownerActor == localActor;
+
         private void RenderCharacter(MatchToken token)
         {
             var character = token.Character;
@@ -134,13 +141,14 @@ namespace ASAL
             SetText(levelText, "Level: " + character.Level);
             SetText(hpText, "HP: " + token.Hp + " / " + character.MaxHp);
             var participant = snapshot.Encounter?.TurnOrder.FirstOrDefault(item => item.TokenId == token.Id);
-            SetText(actionText, participant == null ? "—" : participant.ActionsLeft + " action / " + participant.MoveLeft + " move");
+            SetText(actionText, participant == null ? "—" : participant.ActionsLeft + " action");
             var race = character.Race;
             portrait.texture = Resources.Load<Texture>($"CharacterImages/{race}/{race}_{character.Class}_Circle") ??
                 Resources.Load<Texture>($"CharacterImages/{race}/{race}_Circle");
             hpPanel.SetActive(room.IsDm);
             removeToken.gameObject.SetActive(room.IsDm);
-            var controlsToken = room.IsDm || token.OwnerActor == room.LocalActor;
+            var controlsToken = !room.IsDm && token.OwnerActor == room.LocalActor;
+            var canCast = CanCastTokenSkill(token.OwnerActor, room.LocalActor, room.IsDm);
             for (var i = 0; i < checkAbility.Length; i++)
             {
                 var ability = AbilityAt(character, i);
@@ -160,8 +168,8 @@ namespace ASAL
                 SetText(hitDice[i], info ? info.GetHitDiceData() : "—");
                 SetText(damageDice[i], info ? info.GetDmgDiceData() : "—");
                 showSkill[i].interactable = info;
-                castSkill[i].gameObject.SetActive(controlsToken && info);
-                castSkill[i].interactable = info && CombatManager.Instance.CanUseSkill(token, info.skillName);
+                castSkill[i].gameObject.SetActive(canCast && info);
+                castSkill[i].interactable = canCast && info && CombatManager.Instance.CanUseSkill(token, info.skillName);
             }
             ClearRows(raceRow);
             foreach (var name in character.Skills ?? Array.Empty<string>())
@@ -204,10 +212,16 @@ namespace ASAL
 
         private void CastSkill(int slot)
         {
-            var skills = ActiveSkills(Inspected());
+            var token = Inspected();
+            if (token == null || !CanCastTokenSkill(token.OwnerActor, room.LocalActor, room.IsDm))
+                return;
+
+            var skills = ActiveSkills(token);
             if (slot >= skills.Length)
                 return;
             var skill = skills[slot].skillName;
+            if (!CombatManager.Instance.CanUseSkill(token, skill))
+                return;
             if (!CombatManager.Instance.NeedsTarget(skill))
             {
                 CombatManager.Instance.UseSkill(inspectedToken, null, skill);
