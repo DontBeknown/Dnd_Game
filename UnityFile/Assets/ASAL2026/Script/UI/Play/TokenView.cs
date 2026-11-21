@@ -20,6 +20,8 @@ namespace ASAL
         private bool selected;
         private bool preview;
         private string tokenSession;
+        private Vector3 remoteTarget;
+        private float interpolationRemaining;
 
         internal MatchToken Token { get; private set; }
         internal string TokenId => Token?.Id;
@@ -63,7 +65,7 @@ namespace ASAL
                 stream.Serialize(ref world);
                 stream.Serialize(ref board);
                 if (PhotonManager.FiniteWorldPosition(world) && PhotonManager.FiniteBoardPosition(board))
-                    SetBoardPosition(world, board);
+                    SetReplicatedPosition(world, board);
             }
         }
 
@@ -87,8 +89,29 @@ namespace ASAL
 
         internal void SetBoardPosition(Vector3 worldPosition, Vector2 boardPosition)
         {
+            interpolationRemaining = 0f;
+            remoteTarget = worldPosition;
             transform.position = worldPosition;
             Token.Position = boardPosition;
+        }
+
+        private void SetReplicatedPosition(Vector3 worldPosition, Vector2 boardPosition)
+        {
+            Token.Position = boardPosition;
+            if (remoteTarget.Equals(worldPosition))
+                return;
+            remoteTarget = worldPosition;
+            interpolationRemaining = 1f / PhotonNetwork.SerializationRate;
+        }
+
+        private void Update() => AdvanceRemotePosition(Time.unscaledDeltaTime);
+
+        private void AdvanceRemotePosition(float elapsed)
+        {
+            if (interpolationRemaining <= 0f)
+                return;
+            transform.position = Vector3.Lerp(transform.position, remoteTarget, elapsed / interpolationRemaining);
+            interpolationRemaining -= elapsed;
         }
 
         internal void UpdateHealth(int hp)

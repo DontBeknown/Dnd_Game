@@ -380,7 +380,7 @@ namespace ASAL
 
         internal void DragTo(string id, Vector2 point)
         {
-            if (id != localDragToken || Time.unscaledTime < nextDrag)
+            if (id != localDragToken || (!room.IsDm && Time.unscaledTime < nextDrag))
                 return;
             nextDrag = Time.unscaledTime + DragInterval;
             SendDrag("drag-move", id, point);

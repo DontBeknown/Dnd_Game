@@ -13,6 +13,7 @@ namespace ASAL
     {
         private const float DragThresholdPixels = 6f;
         private const float CollisionSkin = 0.002f;
+        private const int MaxSlideContacts = 3;
         private const string WallLayer = "Tilemap_Wall";
 
         [SerializeField] private Camera playCamera;
@@ -357,23 +358,54 @@ namespace ASAL
             Physics2D.SyncTransforms();
             Vector2 start = view.Footprint.bounds.center;
             Vector2 target = ToWorld(requested);
-            var direction = target - start;
-            var distance = direction.magnitude;
-            if (distance <= 0f)
+            Vector2 position = SweepAndSlide(start, target - start, Radius(view.Footprint), id);
+            if (position.Equals(start))
                 return true;
 
-            direction /= distance;
-            Physics2D.CircleCast(start, Radius(view.Footprint), direction, boardFilter, sweepHits, distance);
-            var travel = distance;
-            foreach (var hit in sweepHits)
-                if (BlocksToken(hit.collider, id))
-                    travel = Mathf.Min(travel, Mathf.Max(0f, hit.distance - CollisionSkin));
-            if (travel <= 0f)
-                return true;
-            accepted = travel < distance ? ToBoard(start + direction * travel) : requested;
+            accepted = position == target ? requested : ToBoard(position);
             view.SetBoardPosition(ToWorld(accepted), accepted);
             Physics2D.SyncTransforms();
             return true;
+        }
+
+        private Vector2 SweepAndSlide(Vector2 position, Vector2 movement, float radius, string id)
+        {
+            for (int contact = 0; contact < MaxSlideContacts && movement.sqrMagnitude > 0.00000001f; contact++)
+            {
+                float distance = movement.magnitude;
+                Vector2 direction = movement / distance;
+                Physics2D.CircleCast(position, radius, direction, boardFilter, sweepHits, distance);
+
+                float hitDistance = float.PositiveInfinity;
+                Vector2 hitNormal = default;
+                foreach (var hit in sweepHits)
+                {
+                    if (hit.distance >= hitDistance || !BlocksToken(hit.collider, id))
+                        continue;
+
+                    Vector2 normal = hit.normal;
+                    if (hit.distance == 0f)
+                    {
+                        // A cast starting in contact can return the reverse cast direction as its normal.
+                        Vector2 separation = position - hit.collider.ClosestPoint(position);
+                        if (separation.sqrMagnitude > 0f)
+                            normal = separation.normalized;
+                        if (Vector2.Dot(direction, normal) >= -0.0001f)
+                            continue;
+                    }
+                    hitDistance = hit.distance;
+                    hitNormal = normal;
+                }
+
+                if (float.IsPositiveInfinity(hitDistance))
+                    return position + movement;
+
+                float travel = Mathf.Max(0f, hitDistance - CollisionSkin);
+                position += direction * travel;
+                movement -= direction * travel;
+                movement -= hitNormal * Mathf.Min(0f, Vector2.Dot(movement, hitNormal));
+            }
+            return position;
         }
 
         private static bool IsFinite(Vector2 position) => float.IsFinite(position.x) && float.IsFinite(position.y)
@@ -478,7 +510,7 @@ namespace ASAL
                     return;
                 pressedTokenId = hit.Id;
                 pressPointer = pointer;
-                dragOffset = hitView.BoardPosition - board;
+                dragOffset = ToBoard(hitView.transform.position) - board;
                 SetSelectedToken(hit.Id);
             }
             if (pressedTokenId == null)

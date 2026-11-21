@@ -151,6 +151,11 @@ namespace ASAL.Tests
                 Assert.That(((Vector2)blocked[2]).x, Is.GreaterThan(0).And.LessThan(1.5f));
                 Assert.That(viewType.GetProperty("BoardPosition", methods).GetValue(view), Is.EqualTo(blocked[2]));
 
+                var slide = new object[] { "player-2", new Vector2(4, 0.6f), null };
+                Assert.That(move.Invoke(panel, slide), Is.True);
+                Assert.That(((Vector2)slide[2]).y, Is.EqualTo(0.6f).Within(0.01f));
+                Assert.That(((Vector2)slide[2]).x, Is.LessThan(1.5f));
+
                 var clear = new object[] { "player-2", new Vector2(0, 2), null };
                 Assert.That(move.Invoke(panel, clear), Is.True);
                 Assert.That(clear[2], Is.EqualTo(clear[1]));
@@ -168,6 +173,40 @@ namespace ASAL.Tests
             JsonUtility.FromJson(@"{""tilemapDataList"":[{""key"":""Tilemap_Wall"",""tiles"": [
                 {""guidForBuildable"":""StoneWall"",""position"":{""x"":2,""y"":0}}]}]}",
                 prepare.GetParameters()[0].ParameterType);
+
+        [Test]
+        public void RemotePositionSettlesOnTheLastPhotonSample()
+        {
+            const BindingFlags methods = BindingFlags.Instance | BindingFlags.NonPublic;
+            var player = UnityEngine.Object.Instantiate(
+                AssetDatabase.LoadAssetAtPath<GameObject>("Assets/ASAL2026/Prefab/Player/Player.prefab"));
+            try
+            {
+                var viewType = Type.GetType("ASAL.TokenView, Assembly-CSharp", true);
+                var view = player.GetComponent(viewType);
+                var bind = viewType.GetMethod("Bind", methods);
+                var token = JsonUtility.FromJson(@"{""Id"":""player-2"",""OwnerActor"":2,""Name"":""Hero""}",
+                    bind.GetParameters()[0].ParameterType);
+                bind.Invoke(view, new[] { token, (object)Vector3.zero });
+
+                var target = new Vector3(2, 1, 0);
+                var boardPosition = new Vector2(1, 2);
+                viewType.GetMethod("SetReplicatedPosition", methods).Invoke(view, new object[] { target, boardPosition });
+                Assert.That(player.transform.position, Is.EqualTo(Vector3.zero));
+                Assert.That(viewType.GetProperty("BoardPosition", methods).GetValue(view), Is.EqualTo(boardPosition));
+
+                float period = (float)viewType.GetField("interpolationRemaining", methods).GetValue(view);
+                var advance = viewType.GetMethod("AdvanceRemotePosition", methods);
+                advance.Invoke(view, new object[] { period / 2 });
+                Assert.That(player.transform.position, Is.EqualTo(target * 0.5f));
+                advance.Invoke(view, new object[] { period });
+                Assert.That(player.transform.position, Is.EqualTo(target));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(player);
+            }
+        }
 
         [Test]
         public void TokenPreviewIsTranslucentAndHasNoActiveCollider()

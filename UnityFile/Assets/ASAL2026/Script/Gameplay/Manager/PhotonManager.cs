@@ -26,6 +26,7 @@ namespace ASAL
         private bool wasInRoom;
         private bool busy;
         private string lobbyFailure;
+        private int previousSerializationRate;
 
         public static PhotonManager Instance { get; private set; }
         internal event Action Changed;
@@ -54,12 +55,17 @@ namespace ASAL
             if (Instance != null)
                 throw new InvalidOperationException("Duplicate PhotonManager.");
             Instance = this;
+            previousSerializationRate = PhotonNetwork.SerializationRate;
+            PhotonNetwork.SerializationRate = Math.Max(previousSerializationRate, 20);
         }
 
         internal void Unregister()
         {
             if (ReferenceEquals(Instance, this))
+            {
+                PhotonNetwork.SerializationRate = previousSerializationRate;
                 Instance = null;
+            }
         }
 
         public override void OnEnable()
