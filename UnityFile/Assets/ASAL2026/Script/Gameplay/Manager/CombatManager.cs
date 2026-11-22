@@ -117,7 +117,7 @@ namespace ASAL
             var next = CopyEncounter(current, delta);
             var combatant = next.Find(token.Id);
             if (!CombatSkills.TryUse(rules, current.Tokens, next, token, combatant, command, skill, DiceManager.RollFace,
-                out var summary, out var report, out var rollResult))
+                out var summary, out var report, out var rollResult, out delta.Attack))
                 return false;
             SyncHealth(current, delta);
             if (dm && rollResult != null)

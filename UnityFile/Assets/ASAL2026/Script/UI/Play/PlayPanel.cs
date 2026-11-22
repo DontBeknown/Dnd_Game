@@ -9,7 +9,7 @@ using UnityEngine.UI;
 
 namespace ASAL
 {
-    public sealed class PlayPanel : MonoBehaviour
+    public sealed partial class PlayPanel : MonoBehaviour
     {
         private const float DragThresholdPixels = 6f;
         private const float CollisionSkin = 0.002f;
@@ -17,6 +17,7 @@ namespace ASAL
         private const string WallLayer = "Tilemap_Wall";
 
         [SerializeField] private Camera playCamera;
+        [SerializeField] private Transform cameraPan;
         [SerializeField] private Transform world;
         [SerializeField] private Grid grid;
         [SerializeField] private Transform mapRoot;
@@ -63,6 +64,7 @@ namespace ASAL
             room = rooms;
             account = owner;
             matchId = rooms.Session;
+            BindAttackFeedback(rooms.Match);
             mapEditor.onClick.AddListener(UIManager.Instance.OpenMapEditor);
             enemies.onClick.AddListener(() => UIManager.Instance.OpenRecordEditor(true, enemies));
             if (!hud)
@@ -94,6 +96,7 @@ namespace ASAL
             if (mapRevision == revision)
                 return;
 
+            ClearAttackFeedback();
             ClearDrag();
             catalog ??= MapManager.LoadBuildables();
             if (world.IsChildOf(transform))
@@ -235,6 +238,8 @@ namespace ASAL
 
         internal void Release()
         {
+            UnbindAttackFeedback();
+            ClearAttackFeedback();
             ClearBoardInteraction();
             hud?.Release();
             account = null;
@@ -245,6 +250,7 @@ namespace ASAL
 
         private void OnDisable()
         {
+            ClearAttackFeedback();
             ClearBoardInteraction();
             SetSelectedToken(null);
             SetBoardVisible(false);
@@ -258,6 +264,7 @@ namespace ASAL
 
         private void OnDestroy()
         {
+            UnbindAttackFeedback();
             if (world && !world.IsChildOf(transform))
             {
                 if (Application.isPlaying)
@@ -291,7 +298,7 @@ namespace ASAL
             var low = grid.GetCellCenterWorld(min);
             var high = grid.GetCellCenterWorld(max);
             var center = (low + high) * 0.5f;
-            playCamera.transform.position = new Vector3(center.x, center.y, playCamera.transform.position.z);
+            cameraPan.position = new Vector3(center.x, center.y, cameraPan.position.z);
             playCamera.orthographicSize = Mathf.Clamp(Mathf.Max(high.y - low.y,
                 (high.x - low.x) / playCamera.aspect) * 0.5f + 2, 4, 40);
         }
@@ -332,6 +339,14 @@ namespace ASAL
 
         internal Vector3 ToWorld(Vector2 position) => CharacterManager.BoardToWorld(grid, position);
         internal Vector2 ToBoard(Vector3 position) => CharacterManager.WorldToBoard(grid, position);
+
+        private Vector2 BoardPointerPosition(Vector2 pointer)
+        {
+            var cameraPosition = playCamera.transform.position;
+            var depth = tokenRoot.position.z - cameraPosition.z;
+            var worldPoint = playCamera.ScreenToWorldPoint(new Vector3(pointer.x, pointer.y, depth));
+            return ToBoard(worldPoint - (cameraPosition - cameraPan.position));
+        }
 
         internal bool IsOpen(Vector2 position, string ignoreTokenId = null)
         {
@@ -438,6 +453,7 @@ namespace ASAL
         // The EventSystem resolves this frame's UI pointer before the board handles it.
         private void LateUpdate()
         {
+            UpdateAttackFeedback();
             if (snapshot == null || UIManager.Instance.IsScreenTransitioning)
                 return;
             if (!room.CanLeave)
@@ -471,7 +487,7 @@ namespace ASAL
                 return;
             }
 
-            playCamera.transform.position += (Vector3)(input.BoardPan * (playCamera.orthographicSize * Time.unscaledDeltaTime));
+            cameraPan.position += (Vector3)(input.BoardPan * (playCamera.orthographicSize * Time.unscaledDeltaTime));
             var pointer = input.BoardPointer;
             if (!playCamera.pixelRect.Contains(pointer) || EventSystem.current?.IsPointerOverGameObject() == true)
             {
@@ -486,8 +502,7 @@ namespace ASAL
             if (!input.BoardClick && enemyTemplate == null && pressedTokenId == null)
                 return;
 
-            var depth = tokenRoot.position.z - playCamera.transform.position.z;
-            var board = ToBoard(playCamera.ScreenToWorldPoint(new Vector3(pointer.x, pointer.y, depth)));
+            var board = BoardPointerPosition(pointer);
 
             if (hud && hud.IsTargeting)
             {

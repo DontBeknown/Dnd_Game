@@ -54,6 +54,7 @@ namespace ASAL
         internal MatchSnapshot Committed { get; private set; }
         internal bool CanSubmit => room.CanLeave && photon.Playing && Committed != null;
         internal event Action<MatchSnapshot> Applied;
+        internal event Action<AttackFeedback, int> AttackResolved;
 
         internal MatchSession(PhotonManager photon, RoomManager room)
         {
@@ -564,7 +565,8 @@ namespace ASAL
             var update = hasCombatUpdate ? new CombatUpdate
             {
                 Revision = combatRevision + 1, EncounterChanged = delta.EncounterChanged, Encounter = delta.Encounter,
-                Health = health.Select(token => new HealthChange { Id = token.Id, Hp = token.Hp }).ToArray(), Log = delta.Log
+                Health = health.Select(token => new HealthChange { Id = token.Id, Hp = token.Hp }).ToArray(),
+                Log = delta.Log, Attack = delta.Attack
             } : null;
             var payload = update == null ? null : JsonUtility.ToJson(update);
             if (payload?.Length > MaxCombatMessageLength)
@@ -631,6 +633,8 @@ namespace ASAL
                 publicLog.Add(log);
             }
             dirty = true;
+            if (!string.IsNullOrEmpty(update.Attack?.AttackerId) && update.Attack.Targets is { Length: > 0 })
+                AttackResolved?.Invoke(update.Attack, update.Revision);
         }
 
         private static bool IsValidEncounter(CombatEncounter value) =>
@@ -744,6 +748,7 @@ namespace ASAL
             public bool EncounterChanged;
             public CombatEncounter Encounter;
             public MatchLogEntry Log;
+            public AttackFeedback Attack;
         }
 
         [Serializable]

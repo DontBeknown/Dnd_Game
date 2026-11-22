@@ -1,5 +1,0 @@
-{
-    "name": "ASAL.Phase1.EditModeTests",
-    "includePlatforms": ["Editor"],
-    "optionalUnityReferences": ["TestAssemblies"]
-}

@@ -79,10 +79,11 @@ namespace ASAL
 
         internal static bool TryUse(RulesCatalog rules, MatchToken[] tokens, CombatEncounter encounter, MatchToken token,
             Combatant caster, MatchCommand command, SkillDefinition skill, Func<int, int> roll, out string summary,
-            out string report, out MatchRoll result)
+            out string report, out MatchRoll result, out AttackFeedback attack)
         {
             summary = report = null;
             result = null;
+            attack = null;
             if (!HasAction(caster, skill))
                 return false;
 
@@ -104,6 +105,7 @@ namespace ASAL
                 summary += $" {string.Join(", ", resolution.HealthChanges)}.";
             report = resolution.Reports.Count == 0 ? null : string.Join(" ", resolution.Reports);
             result = resolution.Dice.ToResult(command.CommandId);
+            attack = resolution.GetAttackFeedback();
             return true;
         }
     }

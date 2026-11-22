@@ -84,5 +84,21 @@ namespace ASAL
         public bool EncounterChanged;
         public CombatEncounter Encounter;
         public MatchLogEntry Log;
+        public AttackFeedback Attack;
+    }
+
+    [Serializable]
+    internal sealed class AttackFeedback
+    {
+        public string AttackerId;
+        public AttackTargetFeedback[] Targets;
+    }
+
+    [Serializable]
+    internal sealed class AttackTargetFeedback
+    {
+        public string TokenId;
+        public int Damage;
+        public bool Dodged;
     }
 }

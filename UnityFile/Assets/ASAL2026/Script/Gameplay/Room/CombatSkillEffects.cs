@@ -48,6 +48,8 @@ namespace ASAL
 
     internal sealed class SkillResolution
     {
+        private Dictionary<string, AttackTargetFeedback> attackTargets;
+
         internal SkillResolution(RulesCatalog rules, MatchToken actor, Combatant caster, CombatEncounter encounter,
             MatchToken[] targets, Func<int, int> roll)
         {
@@ -73,11 +75,31 @@ namespace ASAL
         // shortcut: Bound extra dice for exceptionally large saved levels, revisit if level 105+ is supported.
         internal int ExtraDamageDicePerTerm => Math.Min(Actor.Character.Level / 5, 20);
 
+        internal AttackFeedback GetAttackFeedback() => attackTargets == null ? null : new AttackFeedback
+        {
+            AttackerId = Actor.Id,
+            Targets = Targets.Where(target => attackTargets.ContainsKey(target.Id))
+                .OrderBy(target => (target.Position - Actor.Position).sqrMagnitude)
+                .ThenBy(target => target.Id, StringComparer.Ordinal)
+                .Select(target => attackTargets[target.Id]).ToArray()
+        };
+
         internal void ApplyHealth(MatchToken target, long amount, bool healing, bool critical = false)
         {
             var state = Encounter.Find(target.Id);
             var points = (int)Math.Clamp(amount, 0, int.MaxValue);
             var change = CombatRules.ApplyHealth(Rules, state, healing ? points : -points, target.Character.MaxHp, out var dodged);
+            if (!healing)
+            {
+                attackTargets ??= new Dictionary<string, AttackTargetFeedback>();
+                if (!attackTargets.TryGetValue(target.Id, out var feedback))
+                {
+                    feedback = new AttackTargetFeedback { TokenId = target.Id };
+                    attackTargets.Add(target.Id, feedback);
+                }
+                feedback.Damage = (int)Math.Min(int.MaxValue, (long)feedback.Damage - change);
+                feedback.Dodged = feedback.Damage == 0 && (feedback.Dodged || dodged);
+            }
             HealthChanges.Add(dodged ? $"{target.Name} dodged"
                 : $"{target.Name} {state.Hp}/{target.Character.MaxHp} HP ({change:+#;-#;0}{(critical ? " critical" : "")})");
         }

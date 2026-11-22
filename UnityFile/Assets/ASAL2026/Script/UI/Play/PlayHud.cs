@@ -26,6 +26,7 @@ namespace ASAL
 
         internal bool BlocksBoard => modal && !IsTargeting;
         internal bool IsTargeting => characters.IsTargeting;
+        internal bool IsDiceRolling => dice.IsRolling;
 
         internal void Initialize(PlayPanel panel, RoomManager rooms)
         {

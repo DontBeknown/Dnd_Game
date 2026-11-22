@@ -15,6 +15,7 @@ namespace ASAL
         [SerializeField] private TextMeshPro label;
         [SerializeField] private TextMeshPro hpLabel;
         [SerializeField] private CircleCollider2D footprint;
+        [SerializeField] private Transform visualRoot;
 
         private bool enemy;
         private bool selected;
@@ -73,6 +74,7 @@ namespace ASAL
 
         private void OnDisable()
         {
+            SetVisualOffset(Vector2.zero);
             if (tokenSession == null)
                 return;
             tokenSession = null;
@@ -149,10 +151,18 @@ namespace ASAL
 
         internal void SetBoardVisible(bool visible)
         {
+            if (!visible)
+                SetVisualOffset(Vector2.zero);
             outline.forceRenderingOff = !visible;
             marker.forceRenderingOff = !visible;
             label.renderer.forceRenderingOff = !visible;
             hpLabel.renderer.forceRenderingOff = !visible;
+        }
+
+        internal void SetVisualOffset(Vector2 worldOffset)
+        {
+            if (visualRoot)
+                visualRoot.localPosition = transform.InverseTransformVector(worldOffset);
         }
 
         internal void SetSelected(bool value)

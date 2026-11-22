@@ -20,6 +20,8 @@ namespace ASAL
         private Coroutine rollAnimation;
         private bool hasSnapshot;
 
+        internal bool IsRolling { get; private set; }
+
         internal void Initialize(PlayHud hud, RoomManager room)
         {
             dicePanel.SetActive(false);
@@ -52,6 +54,7 @@ namespace ASAL
             if (rollAnimation != null)
                 StopCoroutine(rollAnimation);
             rollAnimation = null;
+            IsRolling = false;
             if (diceRollPanel)
                 diceRollPanel.SetActive(false);
         }
@@ -78,6 +81,7 @@ namespace ASAL
                 return;
             if (rollAnimation != null)
                 StopCoroutine(rollAnimation);
+            IsRolling = true;
             rollAnimation = StartCoroutine(ShowRoll(roll));
         }
 
@@ -111,6 +115,7 @@ namespace ASAL
             for (var i = 0; i < faces.Length; i++)
                 SetText(faces[i], roll.Faces[i].ToString());
             SetText(rollTotal, "Total: " + roll.Total);
+            IsRolling = false;
             yield return new WaitForSecondsRealtime(1.8f);
             diceRollPanel.SetActive(false);
             rollAnimation = null;
